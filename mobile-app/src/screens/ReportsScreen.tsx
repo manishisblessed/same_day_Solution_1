@@ -12,10 +12,9 @@ type Nav = NativeStackNavigationProp<AppStackParamList>;
 const REPORTS: { label: string; desc: string; icon: string; color: string; service?: string }[] = [
   { label: 'All Transactions', desc: 'Every service in one place', icon: 'albums', color: '#2563EB', service: 'all' },
   { label: 'AEPS Report', desc: 'Cash withdrawals & balance', icon: 'finger-print', color: '#9333EA', service: 'aeps' },
-  { label: 'BBPS / Bills', desc: 'Bill payments history', icon: 'receipt', color: '#0891B2', service: 'bbps' },
+  { label: 'BBPS / Bills & Credit Card', desc: 'Bill payments & CC history', icon: 'receipt', color: '#0891B2', service: 'bbps' },
   { label: 'Settlement / Payout', desc: 'Bank transfers', icon: 'cash', color: '#059669', service: 'payout' },
   { label: 'POS Transactions', desc: 'Card & QR sales', icon: 'hardware-chip', color: '#4F46E5', service: 'pos' },
-  { label: 'Credit Card', desc: 'CC bill payments', icon: 'card', color: '#EA580C', service: 'creditcard' },
 ];
 
 export const ReportsScreen: React.FC = () => {

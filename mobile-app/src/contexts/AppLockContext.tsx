@@ -49,20 +49,20 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const unlock = useCallback(async () => {
-    const ok = await authenticate('Unlock Sameday Retailer');
+    const ok = await authenticate('Welcome back! Verify to access your account');
     if (ok) setLocked(false);
     return ok;
   }, []);
 
   const toggle = useCallback(async (next: boolean) => {
     if (next) {
-      const ok = await authenticate('Confirm to enable App Lock');
+      const ok = await authenticate('Enable biometric protection for your account');
       if (!ok) return false;
       await secureStorage.setItem(LOCK_PREF_KEY, '1');
       setEnabled(true);
       return true;
     }
-    const ok = await authenticate('Confirm to disable App Lock');
+    const ok = await authenticate('Confirm to disable biometric protection');
     if (!ok) return false;
     await secureStorage.removeItem(LOCK_PREF_KEY);
     setEnabled(false);

@@ -72,8 +72,8 @@ export const ProfileScreen: React.FC = () => {
       <Card padded={false}>
         <Row
           icon="shield-checkmark-outline"
-          label={tpinQ.data?.has_tpin ? 'Change TPIN' : 'Set TPIN'}
-          value={tpinQ.data ? (tpinQ.data.is_locked ? 'Locked' : tpinQ.data.has_tpin ? 'Set' : 'Not set') : undefined}
+          label={tpinQ.data?.tpin_enabled ? 'Change TPIN' : 'Set TPIN'}
+          value={tpinQ.data ? (tpinQ.data.is_locked ? 'Locked' : tpinQ.data.tpin_enabled ? 'Set' : 'Not set') : undefined}
           onPress={() => nav.navigate('Tpin')}
         />
         <View style={styles.sep} />

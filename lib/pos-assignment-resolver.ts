@@ -164,17 +164,30 @@ export async function resolveTransactionAssignments(
 
     if (txn.tid && tidToAssignments[txn.tid]) {
       const txTime = new Date(txn.transaction_time)
+      // First: exact time-window match (most accurate)
       const match = tidToAssignments[txn.tid].find(
         a => txTime >= a.from && (!a.to || txTime <= a.to)
       )
       if (match) {
         assignedName = nameFromRole(match.assigned_to, match.assigned_to_role)
         assignedType = match.assigned_to_role
+      } else {
+        // No exact window match: fall back to the current active assignment,
+        // then the most recent record (history sorted desc by created_at).
+        // This handles cases where history exists but was recorded after the
+        // transaction time (e.g. LAGOON machines backfilled or assigned later).
+        const latestActive = tidToAssignments[txn.tid].find(a => !a.to)
+        const fallbackHistory = latestActive || tidToAssignments[txn.tid][0]
+        if (fallbackHistory) {
+          assignedName = nameFromRole(fallbackHistory.assigned_to, fallbackHistory.assigned_to_role)
+          assignedType = fallbackHistory.assigned_to_role
+        }
       }
     }
 
-    // Fallback: use current pos_machines only when NO history exists for this TID
-    if (!assignedName && txn.tid && !tidToAssignments[txn.tid]) {
+    // Fallback: use current pos_machines assignment whenever no name resolved yet
+    // (covers: no history for this TID, or history didn't yield a name)
+    if (!assignedName && txn.tid) {
       const pm = posMachineMap[txn.tid]
       if (pm) {
         if (pm.retailer_id) {

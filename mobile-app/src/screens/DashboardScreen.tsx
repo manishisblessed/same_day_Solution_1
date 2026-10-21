@@ -102,7 +102,7 @@ export const DashboardScreen: React.FC = () => {
         </LinearGradient>
 
         <View style={styles.body}>
-          {quickActions.length > 0 && (
+          {quickActions.length > 0 ? (
             <>
               <FadeSlideIn delay={180}>
                 <SectionHeader
@@ -123,28 +123,47 @@ export const DashboardScreen: React.FC = () => {
                   </FadeSlideIn>
                 ))}
               </View>
-            </>
-          )}
 
-          <FadeSlideIn delay={300 + quickActions.length * 55}>
-            <PressableScale onPress={() => nav.navigate('Tabs', { screen: 'Services' } as any)}>
-              <LinearGradient
-                colors={colors.gradients.blue}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.promo}
-              >
-                <View style={[styles.orb, { top: -30, right: -20, width: 110, height: 110 }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.promoTitle}>Explore all services</Text>
-                  <Text style={styles.promoSub}>Recharges, bills, banking & more — all in one place.</Text>
+              <FadeSlideIn delay={300 + quickActions.length * 55}>
+                <PressableScale onPress={() => nav.navigate('Tabs', { screen: 'Services' } as any)}>
+                  <LinearGradient
+                    colors={colors.gradients.blue}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.promo}
+                  >
+                    <View style={[styles.orb, { top: -30, right: -20, width: 110, height: 110 }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.promoTitle}>Explore all services</Text>
+                      <Text style={styles.promoSub}>Recharges, bills, banking & more — all in one place.</Text>
+                    </View>
+                    <View style={styles.promoArrow}>
+                      <Ionicons name="arrow-forward" size={20} color={colors.blue[700]} />
+                    </View>
+                  </LinearGradient>
+                </PressableScale>
+              </FadeSlideIn>
+            </>
+          ) : (
+            <FadeSlideIn delay={180}>
+              <View style={styles.noServices}>
+                <View style={styles.noServicesIcon}>
+                  <Ionicons name="lock-closed-outline" size={32} color={colors.textMuted} />
                 </View>
-                <View style={styles.promoArrow}>
-                  <Ionicons name="arrow-forward" size={20} color={colors.blue[700]} />
+                <Text style={styles.noServicesTitle}>No services enabled</Text>
+                <Text style={styles.noServicesSub}>
+                  Your services are managed by your admin. Once a service is enabled, it will appear here instantly.
+                </Text>
+                <View style={styles.noServicesHints}>
+                  {(['AEPS', 'Settlement', 'BBPS', 'Recharge', 'POS'] as const).map((s) => (
+                    <View key={s} style={styles.hintChip}>
+                      <Text style={styles.hintText}>{s}</Text>
+                    </View>
+                  ))}
                 </View>
-              </LinearGradient>
-            </PressableScale>
-          </FadeSlideIn>
+              </View>
+            </FadeSlideIn>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -229,4 +248,24 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20, backgroundColor: colors.white,
     alignItems: 'center', justifyContent: 'center', marginLeft: spacing.md,
   },
+
+  noServices: {
+    backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.xl,
+    alignItems: 'center', ...shadow.sm, marginTop: spacing.sm,
+  },
+  noServicesIcon: {
+    width: 68, height: 68, borderRadius: 24, backgroundColor: colors.gray[100],
+    alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md,
+  },
+  noServicesTitle: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.sm },
+  noServicesSub: {
+    ...typography.caption, color: colors.textSecondary, textAlign: 'center',
+    lineHeight: 18, paddingHorizontal: spacing.md,
+  },
+  noServicesHints: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: spacing.lg },
+  hintChip: {
+    backgroundColor: colors.primary[50], paddingHorizontal: 12, paddingVertical: 5,
+    borderRadius: radius.full, borderWidth: 1, borderColor: colors.primary[200],
+  },
+  hintText: { ...typography.small, color: colors.primary[700], fontWeight: '600' },
 });

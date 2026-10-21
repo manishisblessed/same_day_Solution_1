@@ -31,40 +31,42 @@ export const LoginScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.root}>
       <StatusBar style="light" />
 
-      {/* Brand hero */}
+      {/* Full-screen gradient — no more blank section at bottom */}
       <LinearGradient
-        colors={colors.gradients.heroSoft}
+        colors={colors.gradients.hero}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1.1, y: 1 }}
-        style={styles.hero}
-        pointerEvents="none"
-      >
-        <View style={[styles.orb, { top: -70, right: -50, width: 220, height: 220 }]} />
-        <View style={[styles.orb, { bottom: 30, left: -60, width: 170, height: 170, opacity: 0.5 }]} />
-        <View style={[styles.orbAccent, { top: 60, right: 40, width: 90, height: 90 }]} />
-      </LinearGradient>
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Subtle decorative orbs */}
+      <View style={[styles.orb, { top: -80, right: -60, width: 240, height: 240 }]} />
+      <View style={[styles.orb, { bottom: -80, left: -60, width: 220, height: 220, opacity: 0.4 }]} />
+      <View style={[styles.orbAccent, { top: 80, right: 30, width: 80, height: 80 }]} />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.xl }]}
+          contentContainerStyle={[
+            styles.scroll,
+            { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Logo + Brand */}
           <FadeSlideIn distance={16}>
-            <View style={styles.brandRow}>
+            <View style={styles.brand}>
               <View style={styles.logoChip}>
                 <Image source={require('../../../assets/logo.jpg')} style={styles.logoImg} resizeMode="cover" />
               </View>
-              <View style={{ flex: 1, marginLeft: spacing.base }}>
-                <Text style={styles.brandName}>Same Day Solution</Text>
-                <Text style={styles.tagline}>Aapke Har Transaction Ka Saathi</Text>
-              </View>
+              <Text style={styles.brandName}>Same Day Solution</Text>
+              <Text style={styles.tagline}>Aapke Har Transaction Ka Saathi</Text>
             </View>
           </FadeSlideIn>
 
+          {/* Login card */}
           <FadeSlideIn delay={120}>
             <View style={styles.card}>
               <Text style={styles.title}>Welcome back</Text>
@@ -113,6 +115,7 @@ export const LoginScreen: React.FC = () => {
             </View>
           </FadeSlideIn>
 
+          {/* Trust badges */}
           <FadeSlideIn delay={240}>
             <View style={styles.trustRow}>
               {([
@@ -122,7 +125,7 @@ export const LoginScreen: React.FC = () => {
               ] as const).map(([icon, label]) => (
                 <View key={label} style={styles.trustItem}>
                   <View style={styles.trustIcon}>
-                    <Ionicons name={icon} size={16} color={colors.primary[600]} />
+                    <Ionicons name={icon} size={16} color={colors.white} />
                   </View>
                   <Text style={styles.trustLabel}>{label}</Text>
                 </View>
@@ -138,36 +141,31 @@ export const LoginScreen: React.FC = () => {
   );
 };
 
-const HERO_HEIGHT = 340;
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  root: { flex: 1 },
   flex: { flex: 1 },
-  hero: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: HERO_HEIGHT,
-    borderBottomLeftRadius: 34, borderBottomRightRadius: 34, overflow: 'hidden',
-  },
-  orb: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.10)' },
-  orbAccent: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(251,146,60,0.28)' },
-  scroll: { paddingHorizontal: spacing.xl, paddingBottom: spacing['2xl'] },
+  orb: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.08)' },
+  orbAccent: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(251,146,60,0.22)' },
 
-  brandRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.xl, marginTop: spacing.md },
+  scroll: { paddingHorizontal: spacing.xl, flexGrow: 1 },
+
+  brand: { alignItems: 'center', marginBottom: spacing.xl },
   logoChip: {
-    width: 64, height: 64, borderRadius: 18, overflow: 'hidden',
-    backgroundColor: colors.white, ...shadow.base,
+    width: 80, height: 80, borderRadius: 22, overflow: 'hidden',
+    backgroundColor: colors.white, ...shadow.lg, marginBottom: spacing.md,
   },
-  logoImg: { width: '116%', height: '116%', alignSelf: 'center' },
-  brandName: { ...typography.h1, color: colors.white },
-  tagline: { ...typography.caption, color: 'rgba(255,255,255,0.85)', fontStyle: 'italic', marginTop: 2 },
+  logoImg: { width: '110%', height: '110%', alignSelf: 'center' },
+  brandName: { ...typography.h1, color: colors.white, textAlign: 'center' },
+  tagline: { ...typography.caption, color: 'rgba(255,255,255,0.80)', fontStyle: 'italic', marginTop: 4, textAlign: 'center' },
 
   card: {
     backgroundColor: colors.surface, borderRadius: radius['2xl'], padding: spacing.xl,
-    marginTop: spacing.lg, ...shadow.lg, shadowColor: '#0F172A', shadowOpacity: 0.12,
+    ...shadow.lg, shadowColor: '#000', shadowOpacity: 0.18,
   },
   title: { ...typography.h1, color: colors.textPrimary },
-  subtitle: { ...typography.body, color: colors.textSecondary, marginTop: 2 },
-  fields: { marginTop: spacing.lg },
-  cta: { marginTop: spacing.sm, ...shadow.lg, shadowColor: colors.primary[600] },
+  subtitle: { ...typography.body, color: colors.textSecondary, marginTop: 2, marginBottom: spacing.md },
+  fields: { marginTop: spacing.sm },
+  cta: { marginTop: spacing.sm },
 
   secureRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -175,15 +173,15 @@ const styles = StyleSheet.create({
   },
   secureText: { ...typography.caption, color: colors.textSecondary },
 
-  trustRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.xl, marginTop: spacing.xl },
-  trustItem: { alignItems: 'center', gap: 6 },
+  trustRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing['2xl'], marginTop: spacing.xl },
+  trustItem: { alignItems: 'center', gap: 8 },
   trustIcon: {
-    width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primary[50],
-    alignItems: 'center', justifyContent: 'center',
+    width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
   },
-  trustLabel: { ...typography.small, color: colors.textSecondary, fontWeight: '600' },
+  trustLabel: { ...typography.small, color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
   footer: {
-    ...typography.small, color: colors.textMuted, textAlign: 'center',
-    marginTop: spacing.lg, lineHeight: 16,
+    ...typography.small, color: 'rgba(255,255,255,0.60)', textAlign: 'center',
+    marginTop: spacing.lg, lineHeight: 18,
   },
 });

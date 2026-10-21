@@ -10,3 +10,7 @@ export function fetchSchemeMappings(params?: { scheme_id?: string; status?: stri
     scheme_id: params?.scheme_id,
   });
 }
+
+export function fetchSchemeById(id: string) {
+  return api.get<{ success: boolean; data: any }>(`/api/schemes/${id}`);
+}

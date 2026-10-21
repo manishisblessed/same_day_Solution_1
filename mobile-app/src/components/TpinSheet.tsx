@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography } from '@/theme';
 import { Button } from './ui';
@@ -17,7 +18,13 @@ export const TpinSheet: React.FC<{
   onConfirm: (tpin: string) => void;
 }> = ({ visible, amount, title = 'Enter TPIN', submitting, onCancel, onConfirm }) => {
   const [tpin, setTpin] = useState('');
+  const insets = useSafeAreaInsets();
   const digits = tpin.padEnd(4, ' ').split('');
+
+  // Reset TPIN when sheet is hidden (after animation) instead of mid-session.
+  useEffect(() => {
+    if (!visible) setTpin('');
+  }, [visible]);
 
   const press = (n: string) => {
     if (tpin.length < 4) setTpin(tpin + n);
@@ -31,7 +38,9 @@ export const TpinSheet: React.FC<{
   const confirm = () => {
     if (tpin.length === 4) {
       onConfirm(tpin);
-      setTpin('');
+      // Don't reset here — keep dots filled while submitting so it doesn't
+      // look like the sheet re-opened. Reset happens via the useEffect above
+      // when visible flips to false after the parent closes the sheet.
     }
   };
 
@@ -40,7 +49,7 @@ export const TpinSheet: React.FC<{
       <TouchableWithoutFeedback onPress={close}>
         <View style={styles.backdrop} />
       </TouchableWithoutFeedback>
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing['2xl']) }]}>
         <View style={styles.handle} />
         <View style={styles.headerRow}>
           <Ionicons name="shield-checkmark" size={22} color={colors.primary[600]} />
@@ -93,7 +102,7 @@ const styles = StyleSheet.create({
   sheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.surface,
     borderTopLeftRadius: radius['2xl'], borderTopRightRadius: radius['2xl'],
-    padding: spacing.lg, paddingBottom: spacing['2xl'],
+    padding: spacing.lg,
   },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.gray[300], marginBottom: spacing.base },
   headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },

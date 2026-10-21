@@ -51,3 +51,7 @@ export function settlement2Transfer(input: {
 export function settlement2Status(reference_id: string) {
   return api.post<{ success: boolean; data: any; refunded?: boolean }>('/api/settlement-2/status', { reference_id });
 }
+
+export function deleteSettlement2Account(account_id: string) {
+  return api.del<{ success: boolean }>('/api/settlement-2/accounts', { id: account_id });
+}

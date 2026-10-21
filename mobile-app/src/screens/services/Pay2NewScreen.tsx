@@ -78,6 +78,7 @@ export const Pay2NewScreen: React.FC = () => {
   const [billRef, setBillRef] = useState<string | null>(null);
   const [billInfo, setBillInfo] = useState<{ name?: string; due?: number } | null>(null);
   const [bbpsFallback, setBbpsFallback] = useState<string | null>(null);
+  const [pan, setPan] = useState('');
   const [busy, setBusy] = useState(false);
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -91,6 +92,8 @@ export const Pay2NewScreen: React.FC = () => {
 
   const amt = parseFloat(amount) || 0;
   const isCC = service?.needsMobile === true;
+  const needsPan = service?.mode === 'bill' && amt > 49999;
+  const isPanValid = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan.toUpperCase());
 
   const billersQ = useQuery({
     queryKey: ['p2n-billers', service?.serviceId],
@@ -120,13 +123,27 @@ export const Pay2NewScreen: React.FC = () => {
   const resetToServices = () => {
     setService(mode === 'credit-card' ? catalog[0] : null);
     setBiller(null); setSearch(''); setNumber(''); setMobile('');
-    setAmount(''); setBillRef(null); setBillInfo(null); setBbpsFallback(null);
+    setAmount(''); setBillRef(null); setBillInfo(null); setBbpsFallback(null); setPan('');
   };
 
   const onBack = () => {
-    if (biller) { setBiller(null); setNumber(''); setMobile(''); setAmount(''); setBillRef(null); setBillInfo(null); setBbpsFallback(null); return; }
+    if (biller) { setBiller(null); setNumber(''); setMobile(''); setAmount(''); setBillRef(null); setBillInfo(null); setBbpsFallback(null); setPan(''); return; }
     if (service && mode !== 'credit-card') { resetToServices(); return; }
     nav.goBack();
+  };
+
+  const onPayPress = () => {
+    if (needsPan) {
+      if (!pan.trim()) {
+        Alert.alert('PAN Required', 'RBI mandates PAN number for bill payments above ₹49,999. Please enter the customer\'s PAN.');
+        return;
+      }
+      if (!isPanValid) {
+        Alert.alert('Invalid PAN', 'Enter a valid 10-character PAN (e.g. ABCDE1234F).');
+        return;
+      }
+    }
+    setTpinOpen(true);
   };
 
   const validInputs = () => {
@@ -154,7 +171,6 @@ export const Pay2NewScreen: React.FC = () => {
       const d = res.data || {};
       const due = Number(d.amount ?? d.due_amount ?? d.bill_amount ?? 0);
       setBillInfo({ name: d.customer_name || d.customerName, due: due > 0 ? due : undefined });
-      if (due > 0) setAmount(String(due));
     } catch (e: any) {
       Alert.alert('Fetch failed', e instanceof ApiError ? e.message : e?.message || 'Could not fetch bill.');
     } finally {
@@ -199,6 +215,7 @@ export const Pay2NewScreen: React.FC = () => {
         bill_fetch_ref: billRef || '',
         customer_name: billInfo?.name || '',
         tpin,
+        ...(pan.trim() ? { pan_number: pan.toUpperCase().trim() } : {}),
         ...(bbpsFallback ? { use_bbps: true, biller_id: bbpsFallback } : {}),
       });
       setTpinOpen(false);
@@ -221,12 +238,16 @@ export const Pay2NewScreen: React.FC = () => {
       setTpinOpen(false);
       const msg = e instanceof ApiError ? e.message : 'Please try again.';
       const sec = e instanceof ApiError ? Number((e.payload as any)?.cooldown_seconds) : NaN;
-      if (Number.isFinite(sec) && sec > 0) {
-        setCooldown(sec);
-        Alert.alert('Please wait', msg);
-      } else {
-        Alert.alert('Payment failed', msg);
-      }
+      // Delay the alert so the modal slide-out animation finishes first,
+      // preventing the "empty dots + alert" double-render visual glitch.
+      setTimeout(() => {
+        if (Number.isFinite(sec) && sec > 0) {
+          setCooldown(sec);
+          Alert.alert('Please wait', msg);
+        } else {
+          Alert.alert('Payment failed', msg);
+        }
+      }, 350);
     } finally {
       setSubmitting(false);
     }
@@ -389,6 +410,27 @@ export const Pay2NewScreen: React.FC = () => {
             </Text>
           </View>
         ) : null}
+
+        {needsPan && (
+          <View style={styles.panBox}>
+            <View style={styles.panHeader}>
+              <Ionicons name="id-card-outline" size={16} color={colors.warning[600]} />
+              <Text style={[typography.captionMedium, { color: colors.warning[600], marginLeft: 6 }]}>
+                PAN Required (payment {'>'} ₹49,999)
+              </Text>
+            </View>
+            <Input
+              label="Customer PAN Number"
+              icon="card-outline"
+              value={pan}
+              onChangeText={(t) => setPan(t.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10))}
+              autoCapitalize="characters"
+              placeholder="e.g. ABCDE1234F"
+              error={pan.length === 10 && !isPanValid ? 'Invalid PAN format' : undefined}
+              containerStyle={{ marginBottom: 0 }}
+            />
+          </View>
+        )}
       </Card>
 
       {amt >= 1 && (
@@ -399,9 +441,9 @@ export const Pay2NewScreen: React.FC = () => {
             title={cooldown > 0 ? `Wait ${cooldown}s to retry` : `Pay ${formatCurrency(amt)}`}
             size="lg"
             fullWidth
-            disabled={!billRef || cooldown > 0}
+            disabled={!billRef || cooldown > 0 || (needsPan && !isPanValid)}
             style={{ marginTop: spacing.lg }}
-            onPress={() => setTpinOpen(true)}
+            onPress={onPayPress}
           />
         )
       )}
@@ -439,4 +481,6 @@ const styles = StyleSheet.create({
   selBiller: { flexDirection: 'row', alignItems: 'center' },
   billBox: { backgroundColor: colors.secondary[50], borderRadius: radius.base, padding: spacing.base, marginBottom: spacing.md },
   chargeRow: { flexDirection: 'row', alignItems: 'center', marginTop: -6, marginBottom: 4 },
+  panBox: { marginTop: spacing.md, backgroundColor: colors.warning[50], borderRadius: radius.base, padding: spacing.md, borderWidth: 1, borderColor: colors.warning[100] },
+  panHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
 });

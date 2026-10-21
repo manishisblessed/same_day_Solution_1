@@ -25,10 +25,10 @@ export const LockScreen: React.FC = () => {
         <View style={styles.logo}>
           <Ionicons name="lock-closed" size={36} color={colors.primary[700]} />
         </View>
-        <Text style={styles.title}>App Locked</Text>
-        <Text style={styles.subtitle}>Verify your identity to continue</Text>
+        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.subtitle}>Verify your identity to access your account</Text>
         <Button
-          title={tried ? 'Try Again' : 'Unlock'}
+          title={tried ? 'Try Again' : 'Verify Identity'}
           icon="finger-print"
           size="lg"
           onPress={run}

@@ -52,13 +52,11 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     assetBundlePatterns: ['**/*'],
 
     // ─── App icon & splash ──────────────────────────────────────────────────
-    // IMPORTANT: Replace assets/icon.png with a 1024×1024 PNG before submitting
-    // to the App Store or Play Store. The current logo.jpg is a build placeholder.
     icon: './assets/icon.png',
     splash: {
       image: './assets/splash.png',
       resizeMode: 'contain',
-      backgroundColor: '#F4F6FB',
+      backgroundColor: '#111111',
     },
 
     ios: {
@@ -75,7 +73,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
       // Replace with a proper foreground PNG (1024×1024, centered subject on transparent bg).
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
-        backgroundColor: '#F4F6FB',
+        backgroundColor: '#111111',
       },
       permissions: [
         'USE_BIOMETRIC',

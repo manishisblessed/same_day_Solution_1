@@ -65,9 +65,10 @@ export function endSession(session_token: string) {
 
 // ── TPIN (required by every money-moving transaction) ──
 export interface TpinStatus {
-  has_tpin: boolean;
+  /** API field: true when TPIN has been set. */
+  tpin_enabled: boolean;
   is_locked: boolean;
-  attempts_remaining?: number;
+  failed_attempts?: number;
   locked_until?: string | null;
 }
 
@@ -75,10 +76,10 @@ export function fetchTpinStatus() {
   return api.get<TpinStatus>('/api/tpin');
 }
 
-export function setTpin(tpin: string) {
-  return api.post<{ success: boolean }>('/api/tpin', { tpin, action: 'set' });
-}
-
-export function verifyTpin(tpin: string) {
-  return api.post<{ success: boolean }>('/api/tpin', { tpin, action: 'verify' });
+/** First-time set: send only `tpin`. Change: also send `current_tpin`. */
+export function setTpin(tpin: string, current_tpin?: string) {
+  return api.post<{ success: boolean; message?: string }>(
+    '/api/tpin',
+    current_tpin ? { tpin, current_tpin } : { tpin }
+  );
 }
