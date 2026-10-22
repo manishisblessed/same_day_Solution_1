@@ -261,6 +261,7 @@ export async function GET(request: NextRequest) {
         txn_id: t.txn_id,
         tid: t.tid,
         transaction_time: t.transaction_time,
+        device_serial: t.device_serial || null,
       }))
     )
 

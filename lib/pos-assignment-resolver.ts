@@ -18,49 +18,82 @@ const BATCH_SIZE = 50
  * Resolve partner/retailer/distributor/MD names for transactions
  * using time-aware pos_assignment_history windows.
  *
- * For each transaction, returns the assignee who held the POS machine
- * at the time of the transaction. Falls back to the current pos_machines
- * assignment only when no history rows exist for that TID.
+ * Resolution order:
+ *   1. pos_assignment_history — time-window match on TID
+ *   2. pos_assignment_history — latest active / most recent record for TID
+ *   3. pos_machines — current assignment by TID
+ *   4. pos_machines — current assignment by device serial (serial_number)
+ *   5. pos_device_mapping — retailer_id by device serial
  */
 export async function resolveTransactionAssignments(
   supabase: SupabaseClient,
-  transactions: { txn_id: string; tid: string | null; transaction_time: string }[]
+  transactions: { txn_id: string; tid: string | null; transaction_time: string; device_serial?: string | null }[]
 ): Promise<Record<string, AssignmentResult>> {
   const result: Record<string, AssignmentResult> = {}
   const uniqueTids = Array.from(new Set(transactions.map(t => t.tid).filter(Boolean))) as string[]
+  const uniqueSerials = Array.from(new Set(transactions.map(t => t.device_serial).filter(Boolean))) as string[]
 
-  if (uniqueTids.length === 0) {
+  if (uniqueTids.length === 0 && uniqueSerials.length === 0) {
     for (const txn of transactions) {
       result[txn.txn_id] = { assigned_name: null, assigned_type: null }
     }
     return result
   }
 
-  // 1. Fetch pos_machines in batches
-  const posMachineMap: Record<string, any> = {}
-  const machineIdToTid = new Map<string, string>()
+  // 1. Fetch pos_machines by TID in batches
+  const posMachineByTid: Record<string, any> = {}
+  const posMachineBySerial: Record<string, any> = {}
+  const machineIdToKey = new Map<string, string>() // machine UUID → TID (or serial)
   const allMachineIds: string[] = []
 
   for (let i = 0; i < uniqueTids.length; i += BATCH_SIZE) {
     const batch = uniqueTids.slice(i, i + BATCH_SIZE)
     const { data: posMachines } = await supabase
       .from('pos_machines')
-      .select('id, tid, retailer_id, distributor_id, master_distributor_id, partner_id')
+      .select('id, tid, serial_number, retailer_id, distributor_id, master_distributor_id, partner_id')
       .in('tid', batch)
 
     if (posMachines) {
       for (const pm of posMachines) {
         if (pm.tid) {
-          posMachineMap[pm.tid] = pm
-          machineIdToTid.set(pm.id, pm.tid)
+          posMachineByTid[pm.tid] = pm
+          machineIdToKey.set(pm.id, pm.tid)
           allMachineIds.push(pm.id)
         }
       }
     }
   }
 
+  // 1b. Fetch pos_machines by serial_number for TIDs we didn't find
+  const unresolvedSerials = uniqueSerials.filter(s => {
+    // Only look up serials whose transactions didn't already resolve via TID
+    return !transactions.some(t => t.device_serial === s && t.tid && posMachineByTid[t.tid])
+  })
+
+  if (unresolvedSerials.length > 0) {
+    for (let i = 0; i < unresolvedSerials.length; i += BATCH_SIZE) {
+      const batch = unresolvedSerials.slice(i, i + BATCH_SIZE)
+      const { data: posMachines } = await supabase
+        .from('pos_machines')
+        .select('id, tid, serial_number, retailer_id, distributor_id, master_distributor_id, partner_id')
+        .in('serial_number', batch)
+
+      if (posMachines) {
+        for (const pm of posMachines) {
+          if (pm.serial_number) {
+            posMachineBySerial[pm.serial_number] = pm
+            if (!machineIdToKey.has(pm.id)) {
+              machineIdToKey.set(pm.id, pm.serial_number)
+              allMachineIds.push(pm.id)
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 2. Fetch assignment history in batches
-  const tidToAssignments: Record<string, AssignmentWindow[]> = {}
+  const keyToAssignments: Record<string, AssignmentWindow[]> = {}
 
   if (allMachineIds.length > 0) {
     for (let i = 0; i < allMachineIds.length; i += BATCH_SIZE) {
@@ -74,10 +107,10 @@ export async function resolveTransactionAssignments(
 
       if (history) {
         for (const h of history) {
-          const tid = machineIdToTid.get(h.pos_machine_id)
-          if (!tid) continue
-          if (!tidToAssignments[tid]) tidToAssignments[tid] = []
-          tidToAssignments[tid].push({
+          const key = machineIdToKey.get(h.pos_machine_id)
+          if (!key) continue
+          if (!keyToAssignments[key]) keyToAssignments[key] = []
+          keyToAssignments[key].push({
             assigned_to: h.assigned_to,
             assigned_to_role: h.assigned_to_role,
             from: new Date(h.created_at),
@@ -94,8 +127,8 @@ export async function resolveTransactionAssignments(
   const masterDistributorIds = new Set<string>()
   const partnerIds = new Set<string>()
 
-  for (const tid in tidToAssignments) {
-    for (const a of tidToAssignments[tid]) {
+  for (const key in keyToAssignments) {
+    for (const a of keyToAssignments[key]) {
       switch (a.assigned_to_role) {
         case 'retailer': retailerIds.add(a.assigned_to); break
         case 'distributor': distributorIds.add(a.assigned_to); break
@@ -105,12 +138,36 @@ export async function resolveTransactionAssignments(
     }
   }
 
-  // Include current assignment IDs as fallback for machines with no history
-  for (const pm of Object.values(posMachineMap)) {
+  // Include current assignment IDs from pos_machines
+  for (const pm of [...Object.values(posMachineByTid), ...Object.values(posMachineBySerial)]) {
     if (pm.retailer_id) retailerIds.add(pm.retailer_id)
     if (pm.distributor_id) distributorIds.add(pm.distributor_id)
     if (pm.master_distributor_id) masterDistributorIds.add(pm.master_distributor_id)
     if (pm.partner_id) partnerIds.add(pm.partner_id)
+  }
+
+  // 3b. Fetch pos_device_mapping for unresolved serials (retailer_id only)
+  const deviceMappingBySerial: Record<string, any> = {}
+  if (uniqueSerials.length > 0) {
+    for (let i = 0; i < uniqueSerials.length; i += BATCH_SIZE) {
+      const batch = uniqueSerials.slice(i, i + BATCH_SIZE)
+      const { data: mappings } = await supabase
+        .from('pos_device_mapping')
+        .select('device_serial, retailer_id, distributor_id, master_distributor_id')
+        .in('device_serial', batch)
+        .eq('status', 'ACTIVE')
+
+      if (mappings) {
+        for (const m of mappings) {
+          if (m.device_serial) {
+            deviceMappingBySerial[m.device_serial] = m
+            if (m.retailer_id) retailerIds.add(m.retailer_id)
+            if (m.distributor_id) distributorIds.add(m.distributor_id)
+            if (m.master_distributor_id) masterDistributorIds.add(m.master_distributor_id)
+          }
+        }
+      }
+    }
   }
 
   // 4. Fetch name maps in batches
@@ -158,50 +215,89 @@ export async function resolveTransactionAssignments(
     }
   }
 
+  const resolveFromMachine = (pm: any): { name: string | null; type: string | null } => {
+    if (pm.retailer_id) {
+      const n = nameFromRole(pm.retailer_id, 'retailer')
+      if (n) return { name: n, type: 'retailer' }
+    }
+    if (pm.distributor_id) {
+      const n = nameFromRole(pm.distributor_id, 'distributor')
+      if (n) return { name: n, type: 'distributor' }
+    }
+    if (pm.master_distributor_id) {
+      const n = nameFromRole(pm.master_distributor_id, 'master_distributor')
+      if (n) return { name: n, type: 'master_distributor' }
+    }
+    if (pm.partner_id) {
+      const n = nameFromRole(pm.partner_id, 'partner')
+      if (n) return { name: n, type: 'partner' }
+    }
+    return { name: null, type: null }
+  }
+
   for (const txn of transactions) {
     let assignedName: string | null = null
     let assignedType: string | null = null
 
-    if (txn.tid && tidToAssignments[txn.tid]) {
+    // Determine the lookup key (TID or serial) and the assignment list
+    const lookupKey = txn.tid || (txn.device_serial ? txn.device_serial : null)
+    const assignments = txn.tid ? keyToAssignments[txn.tid] : (txn.device_serial ? keyToAssignments[txn.device_serial] : undefined)
+
+    // A. Time-aware history match
+    if (assignments && assignments.length > 0) {
       const txTime = new Date(txn.transaction_time)
-      // First: exact time-window match (most accurate)
-      const match = tidToAssignments[txn.tid].find(
+      const match = assignments.find(
         a => txTime >= a.from && (!a.to || txTime <= a.to)
       )
       if (match) {
         assignedName = nameFromRole(match.assigned_to, match.assigned_to_role)
         assignedType = match.assigned_to_role
       } else {
-        // No exact window match: fall back to the current active assignment,
-        // then the most recent record (history sorted desc by created_at).
-        // This handles cases where history exists but was recorded after the
-        // transaction time (e.g. LAGOON machines backfilled or assigned later).
-        const latestActive = tidToAssignments[txn.tid].find(a => !a.to)
-        const fallbackHistory = latestActive || tidToAssignments[txn.tid][0]
-        if (fallbackHistory) {
-          assignedName = nameFromRole(fallbackHistory.assigned_to, fallbackHistory.assigned_to_role)
-          assignedType = fallbackHistory.assigned_to_role
+        // No exact window: use latest active or most recent record
+        const latestActive = assignments.find(a => !a.to)
+        const fallback = latestActive || assignments[0]
+        if (fallback) {
+          assignedName = nameFromRole(fallback.assigned_to, fallback.assigned_to_role)
+          assignedType = fallback.assigned_to_role
         }
       }
     }
 
-    // Fallback: use current pos_machines assignment whenever no name resolved yet
-    // (covers: no history for this TID, or history didn't yield a name)
+    // B. Fallback: current pos_machines assignment by TID
     if (!assignedName && txn.tid) {
-      const pm = posMachineMap[txn.tid]
+      const pm = posMachineByTid[txn.tid]
       if (pm) {
-        if (pm.retailer_id) {
-          assignedName = nameFromRole(pm.retailer_id, 'retailer')
+        const r = resolveFromMachine(pm)
+        assignedName = r.name
+        assignedType = r.type
+      }
+    }
+
+    // C. Fallback: current pos_machines assignment by serial_number
+    if (!assignedName && txn.device_serial) {
+      const pm = posMachineBySerial[txn.device_serial]
+      if (pm) {
+        const r = resolveFromMachine(pm)
+        assignedName = r.name
+        assignedType = r.type
+      }
+    }
+
+    // D. Fallback: pos_device_mapping by device_serial (retailer_id)
+    if (!assignedName && txn.device_serial) {
+      const mapping = deviceMappingBySerial[txn.device_serial]
+      if (mapping) {
+        if (mapping.retailer_id) {
+          assignedName = nameFromRole(mapping.retailer_id, 'retailer')
           assignedType = 'retailer'
-        } else if (pm.distributor_id) {
-          assignedName = nameFromRole(pm.distributor_id, 'distributor')
+        }
+        if (!assignedName && mapping.distributor_id) {
+          assignedName = nameFromRole(mapping.distributor_id, 'distributor')
           assignedType = 'distributor'
-        } else if (pm.master_distributor_id) {
-          assignedName = nameFromRole(pm.master_distributor_id, 'master_distributor')
+        }
+        if (!assignedName && mapping.master_distributor_id) {
+          assignedName = nameFromRole(mapping.master_distributor_id, 'master_distributor')
           assignedType = 'master_distributor'
-        } else if (pm.partner_id) {
-          assignedName = nameFromRole(pm.partner_id, 'partner')
-          assignedType = 'partner'
         }
       }
     }
