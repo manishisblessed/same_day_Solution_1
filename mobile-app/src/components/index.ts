@@ -9,3 +9,5 @@ export { DateRangeFilter } from './DateRangeFilter';
 export type { DateRange } from './DateRangeFilter';
 export { ExportReportSheet } from './ExportReportSheet';
 export type { ExportReportSheetProps } from './ExportReportSheet';
+export { TransactionReceiptModal } from './TransactionReceiptModal';
+export type { ReceiptData, TransactionReceiptModalProps } from './TransactionReceiptModal';

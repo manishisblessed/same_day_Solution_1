@@ -83,3 +83,28 @@ export function setTpin(tpin: string, current_tpin?: string) {
     current_tpin ? { tpin, current_tpin } : { tpin }
   );
 }
+
+export interface TpinVerifyResult {
+  success: boolean;
+  error?: string;
+  attempts_remaining?: number;
+  locked_until?: string | null;
+}
+
+/**
+ * Verify TPIN WITHOUT moving money — used to resume a superseded session.
+ * silent401 so a stale/inactive session doesn't trigger a global hard sign-out
+ * mid re-auth (the resume flow handles auth failures explicitly).
+ */
+export function verifyTpin(tpin: string) {
+  return api.post<TpinVerifyResult>('/api/tpin/verify', { tpin }, { silent401: true });
+}
+
+/** TPIN status that never throws — returns null on any failure. */
+export async function fetchTpinStatusSafe(): Promise<TpinStatus | null> {
+  try {
+    return await api.get<TpinStatus>('/api/tpin', undefined, { silent401: true });
+  } catch {
+    return null;
+  }
+}

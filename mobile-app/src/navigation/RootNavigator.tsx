@@ -11,6 +11,7 @@ import { RootParamList } from './types';
 import { LoginScreen } from '@/screens/auth/LoginScreen';
 import { AppNavigator } from './AppNavigator';
 import { LockScreen } from '@/screens/LockScreen';
+import { ReauthScreen } from '@/screens/ReauthScreen';
 import { UpdateRequiredScreen } from '@/screens/UpdateRequiredScreen';
 import { checkForUpdate, UpdateInfo } from '@/lib/updates';
 import { registerForPush, addNotificationResponseListener } from '@/lib/notifications';
@@ -18,7 +19,7 @@ import { registerForPush, addNotificationResponseListener } from '@/lib/notifica
 const Stack = createNativeStackNavigator<RootParamList>();
 
 export const RootNavigator: React.FC = () => {
-  const { user, initializing, kickedReason, clearKicked } = useAuth();
+  const { user, initializing, kickedReason, clearKicked, reauthRequired } = useAuth();
   const { enabled: lockEnabled, locked } = useAppLock();
   const [update, setUpdate] = useState<UpdateInfo>({ required: false, available: false });
   const navRef = useRef<NavigationContainerRef<RootParamList>>(null);
@@ -75,7 +76,11 @@ export const RootNavigator: React.FC = () => {
           )}
         </Stack.Navigator>
       </NavigationContainer>
-      {lockEnabled && locked ? <LockScreen /> : null}
+      {user && reauthRequired ? (
+        <ReauthScreen />
+      ) : lockEnabled && locked ? (
+        <LockScreen />
+      ) : null}
     </>
   );
 };

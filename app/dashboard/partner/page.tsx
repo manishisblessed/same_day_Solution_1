@@ -24,7 +24,7 @@ import Pay2NewCCPayment from '@/components/Pay2NewCCPayment'
 import Pay2NewServiceFlow from '@/components/Pay2NewServiceFlow'
 import RechargekitCCPayment from '@/components/RechargekitCCPayment'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
-import PayoutTransfer from '@/components/PayoutTransfer'
+import KnteerPayoutTransfer from '@/components/KnteerPayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import AEPSDashboard from '@/components/AEPSDashboard'
 import ApiPaymentTab from '@/components/ApiPaymentTab'
@@ -493,7 +493,7 @@ function PartnerDashboardContent() {
           {activeTab === 'credit-card' && <PartnerCreditCardTab />}
           {activeTab === 'credit-card-2' && <PartnerCreditCard2Tab />}
           {activeTab === 'api-payment' && <ApiPaymentTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Settlement-1" />}
+          {activeTab === 'payout' && <KnteerPayoutTransfer title="Settlement-1" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && <POSTransactionsTable autoPoll={true} pollInterval={15000} />}
           {activeTab === 'ledger' && <PartnerLedgerTab user={user} />}

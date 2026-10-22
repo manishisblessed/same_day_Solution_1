@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing, typography, shadow } from '@/theme';
-import { Screen, Card, Input, Button, Pill, Loading, EmptyState, TpinSheet, Badge } from '@/components';
+import { Screen, Card, Input, Button, Pill, Loading, EmptyState, TpinSheet, Badge, TransactionReceiptModal, ReceiptData } from '@/components';
 import {
   fetchSettlement2Accounts, fetchSettlement2Charges, settlement2Transfer,
   addSettlement2Account, deleteSettlement2Account, Settlement2Account,
@@ -122,6 +122,7 @@ export const Settlement2Screen: React.FC = () => {
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const amt = parseFloat(amount) || 0;
   const accountsQ = useQuery({ queryKey: ['s2-accounts'], queryFn: fetchSettlement2Accounts });
@@ -176,9 +177,18 @@ export const Settlement2Screen: React.FC = () => {
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
       const t = res.transaction;
-      Alert.alert('Settlement submitted', `${t.status?.toUpperCase()} · ${formatCurrency(t.amount)}\nUTR: ${t.utr || '—'}\nRef: ${t.reference_id}`, [
-        { text: 'Done', onPress: () => nav.goBack() },
-      ]);
+      setReceipt({
+        status: (t.status || '').toLowerCase() === 'success' ? 'success' : 'pending',
+        service: 'Settlement-2',
+        subService: `${mode} Transfer`,
+        amount: t.amount ?? amt,
+        accountNumber: selected?.account_number,
+        bankName: selected?.ifsc_code,
+        mode,
+        utr: t.utr,
+        referenceId: t.reference_id,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       setTpinOpen(false);
       setTimeout(() => Alert.alert('Failed', e instanceof ApiError ? e.message : 'Transfer failed.'), 350);
@@ -279,6 +289,7 @@ export const Settlement2Screen: React.FC = () => {
 
       <Button title="Continue" size="lg" fullWidth style={{ marginTop: spacing.lg }} disabled={!selected || amt < 1} onPress={() => setTpinOpen(true)} />
       <TpinSheet visible={tpinOpen} amount={amt} submitting={submitting} onCancel={() => setTpinOpen(false)} onConfirm={doTransfer} />
+      <TransactionReceiptModal visible={!!receipt} data={receipt} onDone={() => { setReceipt(null); nav.goBack(); }} />
 
       <AddAccountModal
         visible={addOpen}

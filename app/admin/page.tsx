@@ -20,7 +20,7 @@ import {
   Building2, Briefcase, Phone, Mail, Clock, Percent, IndianRupee,
   FileBarChart, Printer, Sheet, BadgeIndianRupee, Banknote,
   CheckCircle2, AlertTriangle, XCircle, Zap, Globe, Smartphone, FileDown,
-  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info, Ban, Network
+  Shield, ShieldCheck, Loader2, CheckCircle, ChevronDown, ChevronUp, Info, Ban, Network, Power
 } from 'lucide-react'
 import TransactionsTable from '@/components/TransactionsTable'
 import POSTransactionsTable from '@/components/POSTransactionsTable'
@@ -1845,6 +1845,16 @@ function AdminDashboardOverview({
   } | null>(null)
   const [rechargekitLoading, setRechargekitLoading] = useState(false)
 
+  // Knteer Balance State
+  const [knteerBalance, setKnteerBalance] = useState<{
+    success: boolean
+    usable_balance: number | null
+    collection_balance: number | null
+    error?: string
+    last_checked: string
+  } | null>(null)
+  const [knteerLoading, setKnteerLoading] = useState(false)
+
   // eKYC Hub balance (reported up from child component for the total)
   const [ekycHubBalance, setEkycHubBalance] = useState<number | null>(null)
 
@@ -1874,7 +1884,7 @@ function AdminDashboardOverview({
           const pw = data.settings?.show_provider_wallets
           setProviderWalletsEnabled(pw ? pw.enabled !== false : true)
 
-          const keys = ['pay2new', 'rechargekit', 'shadval_main', 'shadval_verification', 'ekyc']
+          const keys = ['pay2new', 'rechargekit', 'shadval_main', 'shadval_verification', 'ekyc', 'knteer']
           const vis: Record<string, boolean> = {}
           for (const k of keys) {
             const row = data.settings?.[`show_provider_wallet_${k}`]
@@ -2024,20 +2034,58 @@ function AdminDashboardOverview({
     }
   }
 
+  // Fetch Knteer Balance
+  const fetchKnteerBalance = async () => {
+    setKnteerLoading(true)
+    const checkedAt = new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/knteer-payout/balance', { timeout: 20000 })
+      const data = await response.json()
+      if (data.success) {
+        setKnteerBalance({
+          success: true,
+          usable_balance: data.usable_balance ?? null,
+          collection_balance: data.collection_balance ?? null,
+          last_checked: checkedAt,
+        })
+      } else {
+        setKnteerBalance({
+          success: false,
+          usable_balance: null,
+          collection_balance: null,
+          error: data.error || 'Failed to fetch Knteer balance',
+          last_checked: checkedAt,
+        })
+      }
+    } catch (error: any) {
+      setKnteerBalance({
+        success: false,
+        usable_balance: null,
+        collection_balance: null,
+        error: error?.message || 'Failed to fetch Knteer balance',
+        last_checked: checkedAt,
+      })
+    } finally {
+      setKnteerLoading(false)
+    }
+  }
+
   const refreshAllProviders = () => {
     fetchPay2newBalance()
     fetchShadvalBalance()
     fetchRechargekitBalance()
+    fetchKnteerBalance()
   }
 
-  const anyProviderLoading = pay2newLoading || shadvalLoading || rechargekitLoading
+  const anyProviderLoading = pay2newLoading || shadvalLoading || rechargekitLoading || knteerLoading
 
   const totalAvailableBalance =
     (pay2newBalance?.balance ?? 0) +
     (shadvalBalance?.available_balance ?? 0) +
     (shadvalBalance?.verification_balance ?? 0) +
     (ekycHubBalance ?? 0) +
-    (rechargekitBalance?.balance ?? 0)
+    (rechargekitBalance?.balance ?? 0) +
+    (knteerBalance?.usable_balance ?? 0)
 
   useEffect(() => {
     fetchAnalytics()
@@ -2366,7 +2414,26 @@ function AdminDashboardOverview({
           />
           )}
 
-          {!pay2newBalance && !shadvalBalance && !rechargekitBalance && (
+          {/* Knteer Solution — Settlement-1 Payout */}
+          {isWalletVisible('knteer') && (
+          <ProviderWalletCard
+            theme="amber"
+            icon={<Banknote className="w-4 h-4 text-white" />}
+            title="Knteer Solution"
+            subtitle="Settlement-1 · IMPS Payout"
+            status={knteerBalance?.success ? 'active' : knteerBalance ? 'error' : 'idle'}
+            available={knteerBalance?.usable_balance ?? null}
+            total={knteerBalance?.collection_balance != null ? (knteerBalance.usable_balance ?? 0) + knteerBalance.collection_balance : null}
+            errorMessage={knteerBalance?.error}
+            lastChecked={knteerBalance?.last_checked}
+            loading={knteerLoading}
+            onRefresh={fetchKnteerBalance}
+            globalVisible={balancesVisible}
+            formatINR={formatINR}
+          />
+          )}
+
+          {!pay2newBalance && !shadvalBalance && !rechargekitBalance && !knteerBalance && (
             <div className="md:col-span-2 xl:col-span-3 flex flex-col items-center gap-2 py-8 text-slate-400 text-sm">
               <RefreshCw className={`w-5 h-5 ${anyProviderLoading ? 'animate-spin text-indigo-400' : 'text-slate-500'}`} />
               <p>{anyProviderLoading ? 'Fetching provider balances…' : 'No provider data yet. Click "Refresh All" to load.'}</p>
@@ -2435,6 +2502,57 @@ function ServicesManagementTab() {
     onConfirm: () => void
   }>({ open: false, title: '', message: '', onConfirm: () => {} })
   const usersPerPage = 15
+
+  // Global service switches (stored in portal_settings)
+  const [globalSwitches, setGlobalSwitches] = useState<Record<string, boolean>>({
+    settlement_1_enabled: true,
+    settlement_2_enabled: true,
+  })
+  const [loadingGlobalSwitches, setLoadingGlobalSwitches] = useState(true)
+  const [savingGlobalSwitch, setSavingGlobalSwitch] = useState<string | null>(null)
+
+  const fetchGlobalSwitches = async () => {
+    setLoadingGlobalSwitches(true)
+    try {
+      const res = await apiFetch('/api/admin/portal-settings')
+      const data = await res.json()
+      if (data.success) {
+        setGlobalSwitches({
+          settlement_1_enabled: data.settings?.settlement_1_enabled?.enabled !== false,
+          settlement_2_enabled: data.settings?.settlement_2_enabled?.enabled !== false,
+        })
+      }
+    } catch { /* silent */ }
+    finally { setLoadingGlobalSwitches(false) }
+  }
+
+  const toggleGlobalSwitch = async (key: string, newVal: boolean) => {
+    setSavingGlobalSwitch(key)
+    const prev = globalSwitches[key]
+    setGlobalSwitches(s => ({ ...s, [key]: newVal }))  // optimistic
+    try {
+      const res = await apiFetch('/api/admin/portal-settings', {
+        method: 'POST',
+        body: JSON.stringify({ service_key: key, enabled: newVal }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setGlobalSwitches(s => ({ ...s, [key]: prev }))  // rollback
+        showToast(data.error || 'Failed to update global switch', 'error')
+      } else {
+        const label = key === 'settlement_1_enabled' ? 'Settlement-1' : 'Settlement-2'
+        showToast(`${label} globally ${newVal ? 'enabled' : 'disabled'} for all users`, newVal ? 'success' : 'warning')
+      }
+    } catch {
+      setGlobalSwitches(s => ({ ...s, [key]: prev }))  // rollback
+      showToast('Network error — could not save', 'error')
+    } finally {
+      setSavingGlobalSwitch(null)
+    }
+  }
+
+  // Fetch global switches on mount
+  useEffect(() => { fetchGlobalSwitches() }, [])
 
   const [bbpsProviderBalance, setBbpsProviderBalance] = useState<{
     balance: number | null
@@ -2811,6 +2929,82 @@ function ServicesManagementTab() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Global Service Switches ──────────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden"
+      >
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-sm">
+              <Power className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Global Service Switches</h3>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">Instantly disable a service for ALL users regardless of individual settings</p>
+            </div>
+          </div>
+          <button onClick={fetchGlobalSwitches} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-400">
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingGlobalSwitches ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        <div className="px-4 py-3 flex flex-wrap gap-3">
+          {[
+            { key: 'settlement_1_enabled', label: 'Settlement-1 (Payout)', icon: '🏦', desc: 'KnteerPayoutTransfer — IMPS payout to any bank' },
+            { key: 'settlement_2_enabled', label: 'Settlement-2', icon: '💱', desc: 'ShadvalPay — verified account settlements' },
+          ].map(({ key, label, icon, desc }) => {
+            const isOn = globalSwitches[key] !== false
+            const isSaving = savingGlobalSwitch === key
+            return (
+              <div
+                key={key}
+                className={`flex items-center justify-between gap-4 px-4 py-3 rounded-xl border transition-all flex-1 min-w-[260px] ${
+                  isOn
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{icon}</span>
+                  <div>
+                    <p className={`text-sm font-semibold ${isOn ? 'text-emerald-800 dark:text-emerald-200' : 'text-red-800 dark:text-red-200'}`}>
+                      {label}
+                    </p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">{desc}</p>
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-medium mt-0.5 ${isOn ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {isOn ? '● Globally Active' : '● Globally Disabled'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleGlobalSwitch(key, !isOn)}
+                  disabled={isSaving || loadingGlobalSwitches}
+                  title={isOn ? `Disable ${label} globally` : `Enable ${label} globally`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${isOn ? 'bg-emerald-500' : 'bg-red-400'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${isOn ? 'translate-x-6' : 'translate-x-1'}`} />
+                  {isSaving && <Loader2 className="absolute right-[-20px] w-3.5 h-3.5 animate-spin text-gray-400" />}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        {(!globalSwitches.settlement_1_enabled || !globalSwitches.settlement_2_enabled) && (
+          <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+            <p className="text-xs text-red-700 dark:text-red-300">
+              {[
+                !globalSwitches.settlement_1_enabled && 'Settlement-1',
+                !globalSwitches.settlement_2_enabled && 'Settlement-2',
+              ].filter(Boolean).join(' & ')} {' '}
+              {(!globalSwitches.settlement_1_enabled && !globalSwitches.settlement_2_enabled) ? 'are' : 'is'} globally disabled —
+              no user will see {(!globalSwitches.settlement_1_enabled && !globalSwitches.settlement_2_enabled) ? 'these services' : 'this service'} in their dashboard regardless of individual settings.
+            </p>
+          </div>
+        )}
+      </motion.div>
 
       {/* Sub-tab Navigation */}
       <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 pb-2">
@@ -9898,7 +10092,7 @@ function IPWhitelistModal({
 }
 
 // Compact provider wallet card used inside the unified "Provider Wallets" grid
-type ProviderTheme = 'indigo' | 'emerald' | 'cyan' | 'violet' | 'teal'
+type ProviderTheme = 'indigo' | 'emerald' | 'cyan' | 'violet' | 'teal' | 'amber'
 
 const PROVIDER_THEMES: Record<ProviderTheme, {
   cardClass: string
@@ -9941,6 +10135,13 @@ const PROVIDER_THEMES: Record<ProviderTheme, {
     accentMutedClass: 'text-teal-300/70',
     accentGradientClass: 'from-teal-200 via-cyan-200 to-sky-200',
     glowClass: 'bg-teal-500/10',
+  },
+  amber: {
+    cardClass: 'from-amber-950/70 via-amber-900/30 to-slate-900/60 border-amber-700/40 hover:border-amber-500/60',
+    iconBgClass: 'from-amber-500 to-orange-600',
+    accentMutedClass: 'text-amber-300/70',
+    accentGradientClass: 'from-amber-200 via-orange-200 to-yellow-100',
+    glowClass: 'bg-amber-500/10',
   },
 }
 

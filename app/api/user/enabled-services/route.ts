@@ -125,6 +125,36 @@ export async function GET(request: NextRequest) {
       if (val) hasAnyEnabled = true
     }
 
+    // ── Global service overrides from portal_settings ────────────────────────
+    // If admin has globally disabled a service, it takes precedence over per-user flags.
+    // service_key format: 'settlement_1_enabled', 'settlement_2_enabled', etc.
+    const GLOBAL_OVERRIDES: Array<{ portalKey: string; serviceKey: string }> = [
+      { portalKey: 'settlement_1_enabled', serviceKey: 'settlement' },
+      { portalKey: 'settlement_2_enabled', serviceKey: 'settlement2' },
+    ]
+    try {
+      const { data: portalRows } = await supabase
+        .from('portal_settings')
+        .select('service_key, enabled')
+        .in('service_key', GLOBAL_OVERRIDES.map(o => o.portalKey))
+
+      for (const override of GLOBAL_OVERRIDES) {
+        const portalRow = (portalRows || []).find(r => r.service_key === override.portalKey)
+        // Only override when the admin has explicitly disabled it globally
+        if (portalRow && portalRow.enabled === false) {
+          if (services[override.serviceKey]) {
+            // Was enabled per-user, now forcibly disabled by global switch
+            services[override.serviceKey] = false
+            // Recalculate hasAnyEnabled
+            hasAnyEnabled = Object.values(services).some(Boolean)
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal — portal_settings might not have these keys yet
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     console.log('[enabled-services]', lookupPartnerId, '→ hasAny:', hasAnyEnabled)
     return NextResponse.json(
       { services, hasAnyEnabled },

@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography } from '@/theme';
-import { Screen, Card, Input, Button, Badge, Pill, TpinSheet } from '@/components';
+import { Screen, Card, Input, Button, Badge, Pill, TpinSheet, TransactionReceiptModal, ReceiptData } from '@/components';
 import { verifyAccount, payoutTransfer } from '@/api/payout';
 import { ApiError } from '@/lib/api';
 import { formatCurrency } from '@/utils/format';
@@ -20,6 +20,7 @@ export const PayoutScreen: React.FC = () => {
   const [verified, setVerified] = useState<{ name: string; bank: string } | null>(null);
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const amt = parseFloat(amount) || 0;
 
@@ -61,11 +62,19 @@ export const PayoutScreen: React.FC = () => {
       });
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
-      Alert.alert(
-        res.success ? 'Transfer submitted' : 'Transfer status',
-        `${res.status?.toUpperCase()} · ${formatCurrency(res.amount)}\nCharges: ${formatCurrency(res.charges)}\nTxn: ${res.transaction_id || res.provider_txn_id || '—'}`,
-        [{ text: 'Done', onPress: () => nav.goBack() }]
-      );
+      setReceipt({
+        status: res.success ? 'success' : 'pending',
+        service: 'Settlement-1 (Payout)',
+        subService: `${mode} Transfer`,
+        amount: res.amount ?? amt,
+        charges: res.charges,
+        transactionId: res.transaction_id || res.provider_txn_id,
+        customerName: verified?.name,
+        accountNumber: account.trim(),
+        bankName: verified?.bank,
+        mode,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       setTpinOpen(false);
       Alert.alert('Transfer failed', e instanceof ApiError ? e.message : 'Please try again.');
@@ -104,6 +113,7 @@ export const PayoutScreen: React.FC = () => {
       <Button title={`Transfer ${amt ? formatCurrency(amt) : ''}`} size="lg" fullWidth style={{ marginTop: spacing.lg }} disabled={!verified || amt < 1} onPress={startTransfer} />
 
       <TpinSheet visible={tpinOpen} amount={amt} submitting={submitting} onCancel={() => setTpinOpen(false)} onConfirm={doTransfer} />
+      <TransactionReceiptModal visible={!!receipt} data={receipt} onDone={() => { setReceipt(null); nav.goBack(); }} />
     </Screen>
   );
 };

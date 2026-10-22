@@ -34,6 +34,7 @@ export type ChargeCommissionService =
   | 'rechargekit'
   | 'pay2new'
   | 'aeps_settlement'
+  | 'knteer_payout'
 
 export interface ChargeModelInput {
   /** What DT charges the RT (total charge collected from RT) */

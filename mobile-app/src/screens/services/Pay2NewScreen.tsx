@@ -4,7 +4,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography, shadow } from '@/theme';
-import { Screen, Card, Input, Button, IconTile, Loading, EmptyState, ErrorState, TpinSheet } from '@/components';
+import { Screen, Card, Input, Button, IconTile, Loading, EmptyState, ErrorState, TpinSheet, TransactionReceiptModal, ReceiptData } from '@/components';
 import { fetchPay2NewBillers, fetchPay2NewBill, fetchPay2NewCharges, payPay2NewBill, pay2NewRecharge, checkPay2NewPending, Pay2NewBiller } from '@/api/pay2new';
 import { AppStackParamList } from '@/navigation/types';
 import { ApiError } from '@/lib/api';
@@ -83,6 +83,7 @@ export const Pay2NewScreen: React.FC = () => {
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(0); // same-card 45s cooldown (seconds left)
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -220,20 +221,20 @@ export const Pay2NewScreen: React.FC = () => {
       });
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
-      if (res.pending || res.status === 'PENDING') {
-        Alert.alert(
-          'Payment being confirmed',
-          res.error ||
-            'Your payment is being confirmed with the bank. Please check the transaction status in a few minutes before trying again — do not pay the same card again now.',
-          [{ text: 'OK', onPress: () => nav.goBack() }]
-        );
-        return;
-      }
-      Alert.alert(
-        res.success ? 'Payment successful' : 'Payment status',
-        `Order: ${res.order_id || '—'}\nRef: ${res.operator_reference || '—'}`,
-        [{ text: 'Done', onPress: () => nav.goBack() }]
-      );
+      setReceipt({
+        status: (res.pending || res.status === 'PENDING') ? 'pending' : res.success ? 'success' : 'failed',
+        service: service!.label,
+        subService: biller?.product_name,
+        amount: amt,
+        orderId: res.order_id,
+        referenceId: res.request_id,
+        operatorRef: res.operator_reference,
+        customerName: billInfo?.name,
+        message: (res.pending || res.status === 'PENDING')
+          ? (res.error || 'Your payment is being confirmed. Check status before paying again.')
+          : undefined,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       setTpinOpen(false);
       const msg = e instanceof ApiError ? e.message : 'Please try again.';
@@ -261,20 +262,19 @@ export const Pay2NewScreen: React.FC = () => {
     try {
       const res = await pay2NewRecharge({ number: number.trim(), amount: amt, product_code: biller!.product_code });
       qc.invalidateQueries({ queryKey: ['wallet'] });
-      if (res.pending || res.status === 'PENDING') {
-        Alert.alert(
-          'Recharge being confirmed',
-          res.error ||
-            'Your recharge is being confirmed with the operator. Please check the status in a few minutes before trying again — do not recharge again now.',
-          [{ text: 'OK', onPress: () => nav.goBack() }]
-        );
-        return;
-      }
-      Alert.alert(
-        res.success ? 'Recharge successful' : 'Recharge status',
-        `Order: ${res.order_id || '—'}\nRef: ${res.operator_reference || '—'}`,
-        [{ text: 'Done', onPress: () => nav.goBack() }]
-      );
+      setReceipt({
+        status: (res.pending || res.status === 'PENDING') ? 'pending' : res.success ? 'success' : 'failed',
+        service: service!.label,
+        subService: biller?.product_name,
+        amount: amt,
+        orderId: res.order_id,
+        referenceId: res.request_id,
+        operatorRef: res.operator_reference,
+        message: (res.pending || res.status === 'PENDING')
+          ? (res.error || 'Your recharge is being confirmed. Check status before recharging again.')
+          : undefined,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       Alert.alert('Recharge failed', e instanceof ApiError ? e.message : 'Please try again.');
     } finally {
@@ -459,6 +459,7 @@ export const Pay2NewScreen: React.FC = () => {
       )}
 
       <TpinSheet visible={tpinOpen} amount={amt} submitting={submitting} onCancel={() => setTpinOpen(false)} onConfirm={doPay} />
+      <TransactionReceiptModal visible={!!receipt} data={receipt} onDone={() => { setReceipt(null); nav.goBack(); }} />
     </Screen>
   );
 };

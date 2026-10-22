@@ -24,7 +24,7 @@ import Pay2NewServiceHub from '@/components/Pay2NewServiceHub'
 import Pay2NewServiceFlow from '@/components/Pay2NewServiceFlow'
 import RechargekitCCPayment from '@/components/RechargekitCCPayment'
 import { BBPS_CATEGORY_GROUPS } from '@/lib/bbps/category-groups'
-import PayoutTransfer from '@/components/PayoutTransfer'
+import KnteerPayoutTransfer from '@/components/KnteerPayoutTransfer'
 import ShadvalPayTransfer from '@/components/ShadvalPayTransfer'
 import LedgerTab from '@/components/LedgerTab'
 import UserPushPullReport from '@/components/UserPushPullReport'
@@ -581,7 +581,7 @@ function RetailerDashboardContent() {
           {activeTab === 'credit-card' && <CreditCardTab />}
           {activeTab === 'credit-card-2' && <CreditCard2Tab />}
           {activeTab === 'api-payment' && <ApiPaymentTab />}
-          {activeTab === 'payout' && <PayoutTransfer title="Settlement-1 - Bank Transfer" />}
+          {activeTab === 'payout' && <KnteerPayoutTransfer title="Settlement-1 - Bank Transfer" />}
           {activeTab === 'settlement-2' && <ShadvalPayTransfer title="Settlement-2 - Bank Transfer" />}
           {activeTab === 'transactions' && (
             <>

@@ -21,6 +21,31 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
+/**
+ * While a session is "superseded" (another device logged in) the app shows a
+ * re-auth overlay but keeps screens mounted underneath. To preserve
+ * single-session guarantees we block ALL API calls during that window except
+ * the endpoints required to prove identity and reclaim the session.
+ */
+let reauthGateActive = false;
+const REAUTH_ALLOWED_PATHS = [
+  '/api/auth/register-session',
+  '/api/auth/validate-session',
+  '/api/auth/end-session',
+  '/api/auth/me',
+  '/api/tpin/verify',
+  '/api/tpin',
+];
+export function setReauthGate(active: boolean) {
+  reauthGateActive = active;
+}
+function isReauthAllowed(path: string): boolean {
+  let p = path;
+  try { if (path.startsWith('http')) p = new URL(path).pathname; } catch {}
+  p = p.split('?')[0];
+  return REAUTH_ALLOWED_PATHS.some((a) => p === a || p.startsWith(a + '/'));
+}
+
 export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: any;
@@ -51,6 +76,11 @@ function buildUrl(path: string, query?: ApiOptions['query']): string {
  * getCurrentUserWithFallback). Refreshes the token once on 401 before giving up.
  */
 export async function apiRequest<T = any>(path: string, opts: ApiOptions = {}): Promise<T> {
+  // Block data/money calls while the session is paused awaiting re-auth.
+  if (reauthGateActive && !isReauthAllowed(path)) {
+    throw new ApiError('Session paused. Verify your identity to continue.', 401, 'reauth_required');
+  }
+
   const doFetch = async (token: string | null): Promise<Response> => {
     const headers: Record<string, string> = {
       Accept: 'application/json',

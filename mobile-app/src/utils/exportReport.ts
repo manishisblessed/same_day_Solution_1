@@ -21,10 +21,19 @@ function toCSV(columns: string[], rows: ExportRow[]): string {
   return `${header}\n${body}`;
 }
 
+function escapeHtml(v: any): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function toHTML(title: string, columns: string[], rows: ExportRow[]): string {
-  const thCells = columns.map((c) => `<th>${c}</th>`).join('');
+  const thCells = columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('');
   const tdRows = rows
-    .map((r) => `<tr>${columns.map((c) => `<td>${r[c] ?? ''}</td>`).join('')}</tr>`)
+    .map((r) => `<tr>${columns.map((c) => `<td>${escapeHtml(r[c])}</td>`).join('')}</tr>`)
     .join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
 <style>
@@ -35,8 +44,8 @@ function toHTML(title: string, columns: string[], rows: ExportRow[]): string {
   td{padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:10px}
   tr:nth-child(even) td{background:#f9fafb}
 </style></head><body>
-<h2>${title}</h2>
-<p>Generated: ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; ${rows.length} record(s)</p>
+<h2>${escapeHtml(title)}</h2>
+<p>Generated: ${escapeHtml(new Date().toLocaleString('en-IN'))} &nbsp;|&nbsp; ${rows.length} record(s)</p>
 <table><thead><tr>${thCells}</tr></thead><tbody>${tdRows}</tbody></table>
 </body></html>`;
 }
