@@ -30,6 +30,13 @@ const PAYOUT_SCHEME_BANDS = [
   { min: 25001, max: 50000 },
   { min: 50001, max: 100000 },
 ]
+const SETTLEMENT_1_SCHEME_BANDS = [
+  { min: 100, max: 1000 },
+  { min: 1001, max: 25000 },
+  { min: 25001, max: 50000 },
+  { min: 50001, max: 100000 },
+  { min: 100001, max: 200000 },
+]
 
 // ============================================================================
 // TYPES
@@ -445,6 +452,7 @@ function SchemeManagementPageContent() {
   })
 
   const [settlementTypeSelection, setSettlementTypeSelection] = useState<'payout' | 'shadval_settlement'>('payout')
+  const [settlement1VendorRates, setSettlement1VendorRates] = useState<any[]>([])
 
   const [payoutForm, setPayoutForm] = useState({
     transfer_mode: 'IMPS' as 'IMPS',
@@ -476,7 +484,7 @@ function SchemeManagementPageContent() {
   // Settlement vendor rates pre-loaded for table display (company cost fallback)
   const [settlementVendorRates, setSettlementVendorRates] = useState<any[]>([])
 
-  const fetchVendorRates = useCallback(async (serviceKind: 'BBPS' | 'PAYOUT') => {
+  const fetchVendorRates = useCallback(async (serviceKind: 'BBPS' | 'PAYOUT' | 'SETTLEMENT_1') => {
     try {
       const res = await apiFetch(`/api/admin/service-vendor-rates?service_kind=${serviceKind}`)
       const data = await res.json()
@@ -490,10 +498,15 @@ function SchemeManagementPageContent() {
       .then(r => r.json())
       .then(d => { if (d.rates) setSettlementVendorRates(d.rates.filter((r: any) => r.active)) })
       .catch(() => {})
+    apiFetch('/api/admin/service-vendor-rates?service_kind=SETTLEMENT_1')
+      .then(r => r.json())
+      .then(d => { if (d.rates) setSettlement1VendorRates(d.rates.filter((r: any) => r.active)) })
+      .catch(() => {})
   }, [])
 
-  const getSettlementVendorCost = (minAmt: number, maxAmt: number) => {
-    const r = settlementVendorRates.find(r => Number(r.min_amount) <= minAmt && Number(r.max_amount) >= maxAmt)
+  const getSettlementVendorCost = (minAmt: number, maxAmt: number, stype?: 'payout' | 'shadval') => {
+    const rates = stype === 'payout' ? settlement1VendorRates : settlementVendorRates
+    const r = rates.find(r => Number(r.min_amount) <= minAmt && Number(r.max_amount) >= maxAmt)
     return r ? Number(r.vendor_rate) || 0 : null
   }
 
@@ -610,13 +623,11 @@ function SchemeManagementPageContent() {
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
     setEditingConfigId(editData?.id || null)
-    // Only Settlement-2 (shadval) is available — always route payout → shadval_settlement
     if (type === 'payout' || type === 'shadval_settlement') {
       setConfigType('payout')
-      setSettlementTypeSelection('shadval_settlement')
+      setSettlementTypeSelection(type === 'shadval_settlement' ? 'shadval_settlement' : 'payout')
     } else {
       setConfigType(type)
-      setSettlementTypeSelection('shadval_settlement')
     }
     if (editData) {
       if (type === 'bbps') {
@@ -640,7 +651,8 @@ function SchemeManagementPageContent() {
     }
     setShowConfigModal(true)
     if (type === 'bbps') fetchVendorRates('BBPS')
-    else if (type === 'payout' || type === 'shadval_settlement') fetchVendorRates('PAYOUT')
+    else if (type === 'shadval_settlement') fetchVendorRates('PAYOUT')
+    else if (type === 'payout') fetchVendorRates('SETTLEMENT_1')
   }
 
   // Resolve a flat/percentage value against a representative amount for preview/validation
@@ -700,13 +712,13 @@ function SchemeManagementPageContent() {
         }
       }
 
-      // Settlement-2 (Shadval) is authored through the same payout form; resolve
-      // the real target type up-front so delete/insert routing is consistent for
-      // both create and edit.
+      // Settlement-1 (payout) and Settlement-2 (shadval) are authored through the
+      // same payout form; resolve the real target type up-front.
       let effectiveConfigType = configType
       if (configType === 'payout' && settlementTypeSelection === 'shadval_settlement') {
         effectiveConfigType = 'shadval_settlement'
       }
+      // When settlementTypeSelection === 'payout', effectiveConfigType stays 'payout' (Settlement-1)
 
       // AEPS/settlement/shadval tables have a UNIQUE slab constraint, so we can't
       // safely update-by-id when the slab range changes. Keep delete-then-insert
@@ -817,7 +829,7 @@ function SchemeManagementPageContent() {
       if (!res.ok) throw new Error(result.error || 'Failed to save configuration')
 
       const action = editingConfigId ? 'updated' : 'added'
-      const typeLabel = effectiveConfigType === 'payout' ? 'Settlement-2' : effectiveConfigType === 'shadval_settlement' ? 'Settlement-2' : effectiveConfigType?.toUpperCase()
+      const typeLabel = effectiveConfigType === 'payout' ? 'Settlement-1' : effectiveConfigType === 'shadval_settlement' ? 'Settlement-2' : effectiveConfigType?.toUpperCase()
       setSuccess(`${typeLabel} config ${action} successfully`)
       showToast(`${typeLabel} config ${action}`, 'success')
       setEditingConfigId(null)
@@ -1358,7 +1370,7 @@ function SchemeManagementPageContent() {
                                 ...(scheme.shadval_settlement_charges || []).map((c: any) => ({ ...c, _stype: 'shadval' as const })),
                               ].sort((a, b) => Number(a.min_amount) - Number(b.min_amount)).map((c: any) => {
                                 const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
-                                const vendorCost = getSettlementVendorCost(c.min_amount, c.max_amount)
+                                const vendorCost = getSettlementVendorCost(c.min_amount, c.max_amount, c._stype)
                                 const displayCompanyCost = (c.company_charge && Number(c.company_charge) > 0) ? Number(c.company_charge) : (vendorCost ?? 0)
                                 const isByDT = scheme.created_by_role === 'distributor'
                                 // md_purchase_charge = what MD pays admin; dt_purchase_charge = what DT pays MD
@@ -1367,7 +1379,7 @@ function SchemeManagementPageContent() {
                                 const dtPurchaseVal = isByDT ? (c.dt_purchase_charge || 0) : 0
                                 return (
                                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                  <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">Settlement-2</span></td>
+                                  <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'payout' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'}`}>{c._stype === 'payout' ? 'Settlement-1' : 'Settlement-2'}</span></td>
                                   <td className="px-2 py-1.5 font-medium">{c.transfer_mode}</td>
                                   <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                   {scheme.is_partner_plan ? (
@@ -1686,6 +1698,7 @@ function SchemeManagementPageContent() {
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
                       <option value="all">All Services</option>
                       <option value="bbps">BBPS Only</option>
+                      <option value="payout">Settlement-1 Only</option>
                       <option value="mdr">MDR Only</option>
                       <option value="aeps">AEPS Commission Only</option>
                       <option value="aeps_settlement">AEPS Settlement Only</option>
@@ -1731,7 +1744,7 @@ function SchemeManagementPageContent() {
               <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
                 <h2 className="text-lg font-bold flex items-center gap-2">
                   {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
-                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement Charge</>}
+                  {configType === 'payout' && <><Banknote className="w-5 h-5 text-green-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'payout' ? 'Settlement-1' : 'Settlement-2'} Charge</>}
                   {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                   {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                   {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
@@ -1908,6 +1921,22 @@ function SchemeManagementPageContent() {
               {configType === 'payout' && (
                 <div className="space-y-2">
                   <div>
+                    <label className="block text-sm font-medium mb-1">Settlement Type</label>
+                    <select value={settlementTypeSelection}
+                      onChange={(e) => {
+                        const val = e.target.value as 'payout' | 'shadval_settlement'
+                        setSettlementTypeSelection(val)
+                        const bands = val === 'payout' ? SETTLEMENT_1_SCHEME_BANDS : PAYOUT_SCHEME_BANDS
+                        setPayoutForm(prev => ({ ...prev, min_amount: bands[0].min, max_amount: bands[0].max, company_charge: 0 }))
+                        fetchVendorRates(val === 'payout' ? 'SETTLEMENT_1' : 'PAYOUT')
+                      }}
+                      disabled={!!editingConfigId}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                      <option value="payout">Settlement-1 (Knteer - Account Transfer)</option>
+                      <option value="shadval_settlement">Settlement-2 (Shadval - Account Transfer)</option>
+                    </select>
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                     <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
                       className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
@@ -1924,7 +1953,7 @@ function SchemeManagementPageContent() {
                           setPayoutForm({ ...payoutForm, min_amount: min, max_amount: max, ...(vr ? { company_charge: Number(vr.vendor_rate) || 0, company_charge_type: 'flat' } : {}) })
                         }}
                         className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                        {PAYOUT_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                        {(settlementTypeSelection === 'payout' ? SETTLEMENT_1_SCHEME_BANDS : PAYOUT_SCHEME_BANDS).map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
                       </select>
                     </div>
                     <div className="flex items-end">
