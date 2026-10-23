@@ -15,6 +15,7 @@ export interface KnteerBaseResponse {
 export interface KnteerBalanceResponse extends KnteerBaseResponse {
   UsableWallet?: number
   CollectionWallet?: number
+  Balance?: number
 }
 
 // ─── Beneficiary ─────────────────────────────────────────────────────────────

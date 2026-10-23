@@ -37,7 +37,7 @@ export function createKnteerJwt(refId: string): string {
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const payload = base64url(
     JSON.stringify({
-      exp: Math.floor(Date.now() / 1000) + 270,
+      exp: String(Math.floor(Date.now() / 1000) + 270),
       partnerId: getKnteerPartnerId(),
       refId,
     })

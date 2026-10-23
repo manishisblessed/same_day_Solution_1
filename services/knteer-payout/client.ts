@@ -101,8 +101,8 @@ class KnteerClient {
   }
 
   private mockResponse(endpoint: string): unknown {
-    if (endpoint.includes('wallet/balance')) {
-      return { UsableWallet: 50000, CollectionWallet: 0, status: true, code: 273, message: 'Balance Fetch Successfully' }
+    if (endpoint.toLowerCase().includes('wallet/balance')) {
+      return { Balance: 50000, UsableWallet: 50000, CollectionWallet: 0, status: true, code: 273, message: 'Balance Fetch Successfully' }
     }
     if (endpoint.includes('add-bene')) {
       return { data: { beneCode: `BENI_MOCK_${Date.now()}` }, status: true, code: 276, message: 'Successfully Registerd!!' }

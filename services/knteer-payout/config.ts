@@ -3,16 +3,16 @@
  */
 
 export function getKnteerBaseUrl(): string {
-  return process.env.KNTEER_API_BASE_URL || 'https://api.knteersolution.com/prod'
+  return process.env.KNTEER_API_BASE_URL || 'https://api.knteersolution.com/Prod'
 }
 
 export function getKnteerPartnerId(): string {
-  return process.env.KNTEER_PARTNER_ID || ''
+  return process.env.KNTEER_MSR_ID || process.env.KNTEER_PARTNER_ID || ''
 }
 
-/** HS256 JWT signing secret provided by Knteer */
+/** HS256 JWT signing secret provided by Knteer (portal: JwtToken) */
 export function getKnteerPartnerSecret(): string {
-  return process.env.KNTEER_PARTNER_SECRET || ''
+  return process.env.KNTEER_JWT_TOKEN || process.env.KNTEER_PARTNER_SECRET || ''
 }
 
 export function getKnteerLatitude(): string {
@@ -51,7 +51,7 @@ export function validateKnteerCredentials(): void {
   const secret = getKnteerPartnerSecret()
   if (!partnerId || !secret) {
     throw new Error(
-      'Knteer credentials not configured. Set KNTEER_PARTNER_ID and KNTEER_PARTNER_SECRET.'
+      'Knteer credentials not configured. Set KNTEER_MSR_ID and KNTEER_JWT_TOKEN.'
     )
   }
 }

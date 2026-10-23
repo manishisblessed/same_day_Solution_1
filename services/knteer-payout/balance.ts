@@ -18,8 +18,8 @@ export async function getKnteerBalance(): Promise<{
   }
 
   const res = await knteerClient.request<KnteerBalanceResponse>({
-    method: 'GET',
-    endpoint: '/wallet/balance',
+    method: 'POST',
+    endpoint: '/Wallet/Balance',
   })
 
   if (!res.success || !res.data) {
@@ -33,7 +33,7 @@ export async function getKnteerBalance(): Promise<{
 
   return {
     success: true,
-    usable_balance: d.UsableWallet ?? 0,
+    usable_balance: d.UsableWallet ?? d.Balance ?? 0,
     collection_balance: d.CollectionWallet ?? 0,
   }
 }
