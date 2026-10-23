@@ -20,9 +20,10 @@ function base64url(input: Buffer | string): string {
  * Used in both the JWT payload and as the partnerTransId in do-transaction.
  */
 export function generateRefId(): string {
-  const ts = Date.now().toString()
-  const rand = Math.floor(Math.random() * 100000).toString().padStart(5, '0')
-  return `KNT${ts}${rand}`
+  // Knteer requires exactly 10-digit numeric string
+  const ts = Date.now().toString().slice(-6)
+  const rand = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
+  return `${ts}${rand}`
 }
 
 /**
