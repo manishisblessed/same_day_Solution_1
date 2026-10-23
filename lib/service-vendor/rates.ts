@@ -23,7 +23,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin';
 import { GST_DIVISOR } from '@/lib/brand/mdr';
 
-export type ServiceKind = 'BBPS' | 'PAYOUT';
+export type ServiceKind = 'BBPS' | 'PAYOUT' | 'SETTLEMENT_1';
 export type RateType = 'PERCENT' | 'FLAT';
 
 export interface ServiceVendorRate {

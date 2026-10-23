@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
               dt_purchase_charge: dtPc,
               rt_purchase_charge: rtPc,
               company_cost: parseFloat(chargeResult[0].company_earning) || 0,
-              reverify: { serviceKind: 'PAYOUT', scopeKey: paymentMode, category: null, amount: amountNum },
+              reverify: { serviceKind: 'SETTLEMENT_1', scopeKey: paymentMode, category: null, amount: amountNum },
             }
           }
         }
@@ -259,26 +259,50 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, NextResponse.json({ success: false, error: 'Payout service temporarily unavailable. Please try again later.' }, { status: 503 }))
     }
 
-    // ── Duplicate prevention — same account within 2 min ──────────────────
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
-    const { data: recentTx } = await supabaseAdmin
+    // ── 60-second cooldown — block ANY transfer to same account after SUCCESS ──
+    const COOLDOWN_SECONDS = 60
+    const cooldownCutoff = new Date(Date.now() - COOLDOWN_SECONDS * 1000).toISOString()
+    const { data: recentSuccessTx } = await supabaseAdmin
       .from('knteer_payout_transactions')
       .select('id, status, created_at, amount')
       .eq('retailer_id', user.partner_id)
       .eq('account_number', accountNumber)
-      .gte('created_at', twoMinAgo)
-      .in('status', ['PENDING', 'SUCCESS'])
+      .gte('created_at', cooldownCutoff)
+      .eq('status', 'SUCCESS')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (recentTx) {
-      const secsAgo = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
+    if (recentSuccessTx) {
+      const secsAgo = Math.round((Date.now() - new Date(recentSuccessTx.created_at).getTime()) / 1000)
+      const remaining = Math.max(1, COOLDOWN_SECONDS - secsAgo)
       if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
       return addCorsHeaders(request, NextResponse.json({
         success: false,
-        error: `A transaction to this account was initiated ${secsAgo}s ago. Wait ${120 - secsAgo}s before retrying.`,
-        wait_seconds: 120 - secsAgo,
+        error: `Please wait ${remaining} seconds before making another transfer to this account.`,
+        cooldown_seconds: remaining,
+      }, { status: 429 }))
+    }
+
+    // ── Duplicate prevention — same account + same amount, PENDING within 15s ──
+    const fifteenSecAgo = new Date(Date.now() - 15 * 1000).toISOString()
+    const { data: recentPendingTx } = await supabaseAdmin
+      .from('knteer_payout_transactions')
+      .select('id, status, created_at, amount')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', accountNumber)
+      .eq('amount', amountNum)
+      .gte('created_at', fifteenSecAgo)
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentPendingTx) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
+      return addCorsHeaders(request, NextResponse.json({
+        success: false,
+        error: 'An identical transaction (same account + amount) is already processing. Please wait.',
       }, { status: 429 }))
     }
 
@@ -372,7 +396,8 @@ export async function POST(request: NextRequest) {
       .update({ actual_wallet_debit: totalRequired, transfer_ledger_id: transferLedgerId, wallet_debited: true })
       .eq('id', txRecord.id)
 
-    // ── Commission distribution (optimistic — reversed on definitive failure) ─
+    // ── Commission distribution with 2% TDS (optimistic — reversed on failure) ─
+    const TDS_RATE = 2
     if (charges > 0) {
       const commResult = await distributeServiceCommission({
         supabase: supabaseAdmin,
@@ -385,6 +410,7 @@ export async function POST(request: NextRequest) {
         distributor: { id: distributorId, commission: commissionSplit.distributor_commission },
         masterDistributor: { id: mdId },
         chargeModel: chargeModelData,
+        tdsRate: TDS_RATE,
         remarksSuffix: `on ₹${amountNum} knteer payout`,
         auditWriteback: {
           table: 'knteer_payout_transactions',
@@ -397,6 +423,13 @@ export async function POST(request: NextRequest) {
       })
       if (commResult.errors.length) {
         console.error('[Knteer Transfer] Commission errors:', commResult.errors)
+      } else {
+        console.log(`[Knteer Transfer] ✅ Commission: DT ₹${commResult.distributorCredited}, MD ₹${commResult.mdCredited}, Company ₹${commResult.companyCredited}, TDS ₹${commResult.tdsDeducted}`)
+        // Record TDS in transaction
+        await supabaseAdmin
+          .from('knteer_payout_transactions')
+          .update({ tds_amount: commResult.tdsDeducted, tds_rate: TDS_RATE })
+          .eq('id', txRecord.id)
       }
     }
 

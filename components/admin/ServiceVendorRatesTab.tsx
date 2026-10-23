@@ -5,7 +5,7 @@ import { apiFetch } from '@/lib/api-client'
 import { useToast } from '@/components/Toast'
 import { RefreshCw, Plus, Trash2, Pencil, Layers, Loader2, X, Save } from 'lucide-react'
 
-type ServiceKind = 'BBPS' | 'PAYOUT'
+type ServiceKind = 'BBPS' | 'PAYOUT' | 'SETTLEMENT_1'
 type RateType = 'PERCENT' | 'FLAT'
 
 interface ServiceVendorRate {
@@ -40,16 +40,24 @@ const PAYOUT_BANDS: { min: number; max: number }[] = [
   { min: 25001, max: 50000 },
   { min: 50001, max: 100000 },
 ]
+const SETTLEMENT_1_BANDS: { min: number; max: number }[] = [
+  { min: 100, max: 1000 },
+  { min: 1001, max: 25000 },
+  { min: 25001, max: 50000 },
+  { min: 50001, max: 100000 },
+  { min: 100001, max: 200000 },
+]
 
 const KINDS: { id: ServiceKind; label: string; hasCategory: boolean }[] = [
   { id: 'BBPS', label: 'BBPS', hasCategory: true },
   { id: 'PAYOUT', label: 'Settlement (Account Transfer)', hasCategory: false },
+  { id: 'SETTLEMENT_1', label: 'Settlement-1 (Account Transfer)', hasCategory: false },
 ]
 
 const emptyRate = (kind: ServiceKind) => {
-  const band = kind === 'BBPS' ? BBPS_BANDS[0] : PAYOUT_BANDS[0]
+  const band = kind === 'BBPS' ? BBPS_BANDS[0] : kind === 'SETTLEMENT_1' ? SETTLEMENT_1_BANDS[0] : PAYOUT_BANDS[0]
   return {
-    scope_key: kind === 'PAYOUT' ? 'IMPS' : '*',
+    scope_key: kind === 'PAYOUT' || kind === 'SETTLEMENT_1' ? 'IMPS' : '*',
     category: kind === 'BBPS' ? '*' : '',
     min_amount: band.min,
     max_amount: band.max,
@@ -92,7 +100,7 @@ export default function ServiceVendorRatesTab() {
 
   useEffect(() => { load() }, [load])
 
-  const bands = kind === 'BBPS' ? BBPS_BANDS : PAYOUT_BANDS
+  const bands = kind === 'BBPS' ? BBPS_BANDS : kind === 'SETTLEMENT_1' ? SETTLEMENT_1_BANDS : PAYOUT_BANDS
   const selectedBand = bands.find(b => b.max === Number(rateForm.max_amount)) || bands[0]
 
   function openCreateRate() {
@@ -125,7 +133,7 @@ export default function ServiceVendorRatesTab() {
     try {
       const payload = {
         service_kind: kind,
-        scope_key: kind === 'BBPS' ? '*' : (rateForm.scope_key?.trim() || '*'),
+        scope_key: kind === 'BBPS' ? '*' : (rateForm.scope_key?.trim() || 'IMPS'),
         category: kind === 'BBPS' ? (rateForm.category === '*' ? null : (rateForm.category?.trim() || null)) : null,
         min_amount: selectedBand.min,
         max_amount: Number(rateForm.max_amount),

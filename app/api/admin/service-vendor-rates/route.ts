@@ -19,7 +19,7 @@ async function requireAdmin(request: NextRequest) {
   return { admin }
 }
 
-const VALID_KINDS = ['BBPS', 'PAYOUT']
+const VALID_KINDS = ['BBPS', 'PAYOUT', 'SETTLEMENT_1']
 const VALID_TYPES = ['PERCENT', 'FLAT']
 
 const num = (v: any) => {
@@ -29,7 +29,7 @@ const num = (v: any) => {
 
 function buildRow(body: any): { row?: any; error?: string } {
   const service_kind = String(body.service_kind || '').toUpperCase()
-  if (!VALID_KINDS.includes(service_kind)) return { error: 'Invalid service_kind (BBPS | PAYOUT)' }
+  if (!VALID_KINDS.includes(service_kind)) return { error: 'Invalid service_kind (BBPS | PAYOUT | SETTLEMENT_1)' }
 
   const scope_key = body.scope_key ? String(body.scope_key).trim() : '*'
   const category = body.category ? String(body.category).trim() : null

@@ -53,7 +53,7 @@ export interface ChargeModelInput {
    * rate matches (back-compat).
    */
   reverify?: {
-    serviceKind: 'BBPS' | 'PAYOUT'
+    serviceKind: 'BBPS' | 'PAYOUT' | 'SETTLEMENT_1'
     scopeKey?: string | null
     category?: string | null
     amount: number
@@ -77,6 +77,8 @@ export interface DistributeCommissionInput {
   masterDistributor?: { id: string | null } | null
   /** If provided, use the charge-based model for margin distribution */
   chargeModel?: ChargeModelInput | null
+  /** TDS rate (e.g. 2 for 2%). When set, TDS is deducted from DT/MD commission before crediting. */
+  tdsRate?: number
   remarksSuffix?: string
   auditWriteback?: {
     table: string
@@ -93,6 +95,7 @@ export interface DistributeCommissionResult {
   distributorCredited: number
   mdCredited: number
   companyCredited: number
+  tdsDeducted: number
   errors: string[]
   model: 'charge' | 'legacy'
 }
@@ -119,6 +122,7 @@ export async function distributeServiceCommission(
     distributorCredited: 0,
     mdCredited: 0,
     companyCredited: 0,
+    tdsDeducted: 0,
     errors: [],
     model: input.chargeModel ? 'charge' : 'legacy',
   }
@@ -170,17 +174,25 @@ async function distributeChargeModel(
     }
   }
 
-  const dtMargin = round2(Math.max(0, rtCharge - dtCharge))
-  const mdMargin = round2(Math.max(0, dtCharge - mdCharge))
+  const dtMarginGross = round2(Math.max(0, rtCharge - dtCharge))
+  const mdMarginGross = round2(Math.max(0, dtCharge - mdCharge))
   const companyMargin = round2(Math.max(0, mdCharge - companyCost))
+
+  // TDS deduction: when tdsRate is set, deduct from DT/MD before crediting
+  const tdsRate = input.tdsRate || 0
+  const dtTds = tdsRate > 0 ? round2(dtMarginGross * tdsRate / 100) : 0
+  const mdTds = tdsRate > 0 ? round2(mdMarginGross * tdsRate / 100) : 0
+  const dtMargin = round2(dtMarginGross - dtTds)
+  const mdMargin = round2(mdMarginGross - mdTds)
 
   const prefix = input.refPrefix
   const suffix = input.remarksSuffix ? ` ${input.remarksSuffix}` : ''
   const distributorId = input.distributor?.id || null
   const mdId = input.masterDistributor?.id || null
 
-  // --- DT margin credit ---
+  // --- DT margin credit (net of TDS) ---
   if (dtMargin > 0 && distributorId) {
+    const tdsNote = dtTds > 0 ? ` [TDS ${tdsRate}%: ₹${dtTds}]` : ''
     const { error } = await supabase.rpc('add_ledger_entry', {
       p_user_id: distributorId,
       p_user_role: 'distributor',
@@ -193,14 +205,15 @@ async function distributeChargeModel(
       p_reference_id: `${prefix}-DTMARGIN-${input.refKey}`,
       p_transaction_id: input.transactionUuid || null,
       p_status: 'completed',
-      p_remarks: `${input.service.toUpperCase()} DT margin ₹${dtMargin} (charge ₹${rtCharge} - ₹${dtCharge})${suffix}`,
+      p_remarks: `${input.service.toUpperCase()} DT margin ₹${dtMarginGross} net ₹${dtMargin}${tdsNote} (charge ₹${rtCharge} - ₹${dtCharge})${suffix}`,
     })
     if (error && !isDuplicate(error)) result.errors.push(`DT: ${error.message}`)
     else result.distributorCredited = dtMargin
   }
 
-  // --- MD margin credit ---
+  // --- MD margin credit (net of TDS) ---
   if (mdMargin > 0 && mdId) {
+    const tdsNote = mdTds > 0 ? ` [TDS ${tdsRate}%: ₹${mdTds}]` : ''
     const { error } = await supabase.rpc('add_ledger_entry', {
       p_user_id: mdId,
       p_user_role: 'master_distributor',
@@ -213,11 +226,13 @@ async function distributeChargeModel(
       p_reference_id: `${prefix}-MDMARGIN-${input.refKey}`,
       p_transaction_id: input.transactionUuid || null,
       p_status: 'completed',
-      p_remarks: `${input.service.toUpperCase()} MD margin ₹${mdMargin} (charge ₹${dtCharge} - ₹${mdCharge})${suffix}`,
+      p_remarks: `${input.service.toUpperCase()} MD margin ₹${mdMarginGross} net ₹${mdMargin}${tdsNote} (charge ₹${dtCharge} - ₹${mdCharge})${suffix}`,
     })
     if (error && !isDuplicate(error)) result.errors.push(`MD: ${error.message}`)
     else result.mdCredited = mdMargin
   }
+
+  result.tdsDeducted = round2(dtTds + mdTds)
 
   // --- Company margin (revenue) ---
   if (companyMargin > 0) {
@@ -272,12 +287,18 @@ async function distributeLegacyModel(
   const totalCharge = round2(input.totalCharge || 0)
   if (totalCharge <= 0) return result
 
-  const retailerCommission = round2(Math.max(0, input.retailer.commission || 0))
+  const tdsRate = input.tdsRate || 0
+  const retailerCommissionGross = round2(Math.max(0, input.retailer.commission || 0))
+  const rtTds = tdsRate > 0 ? round2(retailerCommissionGross * tdsRate / 100) : 0
+  const retailerCommission = round2(retailerCommissionGross - rtTds)
   const distributorId = input.distributor?.id || null
-  const distributorCommission = distributorId
+  const distributorCommissionGross = distributorId
     ? round2(Math.max(0, input.distributor?.commission || 0))
     : 0
+  const dtTds = tdsRate > 0 ? round2(distributorCommissionGross * tdsRate / 100) : 0
+  const distributorCommission = round2(distributorCommissionGross - dtTds)
   const companyEarning = round2(totalCharge - retailerCommission - distributorCommission)
+  result.tdsDeducted = round2(rtTds + dtTds)
 
   const prefix = input.refPrefix
   const suffix = input.remarksSuffix ? ` ${input.remarksSuffix}` : ''
