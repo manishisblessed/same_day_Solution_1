@@ -122,6 +122,9 @@ export function AdminAEPSManagement() {
   const [bankSettleFilter, setBankSettleFilter] = useState<string>('pending')
   const [bankSettleProcessing, setBankSettleProcessing] = useState<string | null>(null)
   const [checkPendingLoading, setCheckPendingLoading] = useState(false)
+  // Merchant deletion
+  const [selectedMerchantIds, setSelectedMerchantIds] = useState<string[]>([])
+  const [merchantDeleteLoading, setMerchantDeleteLoading] = useState(false)
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -170,6 +173,27 @@ export function AdminAEPSManagement() {
       setError(err.message || 'Failed to fetch merchants')
     }
   }, [])
+
+  const handleDeleteMerchants = async (ids: string[]) => {
+    if (!confirm(`Delete ${ids.length} merchant(s)? They can re-register after this.`)) return
+    setMerchantDeleteLoading(true)
+    try {
+      const response = await apiFetch('/api/admin/aeps/merchants', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant_ids: ids }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Delete failed')
+      alert(`✅ Deleted ${data.count} merchant(s) successfully. They can now re-register.`)
+      setSelectedMerchantIds([])
+      fetchMerchants()
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    } finally {
+      setMerchantDeleteLoading(false)
+    }
+  }
 
   const fetchSettleAccounts = useCallback(async () => {
     try {
@@ -917,38 +941,95 @@ export function AdminAEPSManagement() {
 
           {/* Merchants Tab */}
           {activeTab === 'merchants' && (
-            <div className="bg-white rounded-lg border overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mobile</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">KYC Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {merchants.map(merchant => (
-                      <tr key={merchant.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-sm">{merchant.merchant_id}</span>
-                        </td>
-                        <td className="px-4 py-3 font-medium">{merchant.name}</td>
-                        <td className="px-4 py-3">{merchant.mobile}</td>
-                        <td className="px-4 py-3">
-                          {getStatusBadge(merchant.kyc_status === 'validated' ? 'success' : merchant.kyc_status)}
-                        </td>
-                        <td className="px-4 py-3">{merchant.route || merchant.bank_pipe || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {formatDate(merchant.created_at)}
-                        </td>
+            <div className="space-y-3">
+              {selectedMerchantIds.length > 0 && (
+                <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <span className="text-sm text-red-800 font-medium">{selectedMerchantIds.length} merchant(s) selected</span>
+                  <button
+                    onClick={() => handleDeleteMerchants(selectedMerchantIds)}
+                    disabled={merchantDeleteLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {merchantDeleteLoading ? 'Deleting...' : 'Delete Selected'}
+                  </button>
+                  <button
+                    onClick={() => setSelectedMerchantIds([])}
+                    className="text-sm text-red-600 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              <div className="bg-white rounded-lg border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 w-10">
+                          <input
+                            type="checkbox"
+                            checked={merchants.length > 0 && selectedMerchantIds.length === merchants.length}
+                            onChange={(e) => setSelectedMerchantIds(e.target.checked ? merchants.map(m => m.merchant_id) : [])}
+                            className="rounded"
+                          />
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Merchant ID</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mobile</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">KYC Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Route</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {merchants.map(merchant => (
+                        <tr key={merchant.id} className={`hover:bg-gray-50 ${selectedMerchantIds.includes(merchant.merchant_id) ? 'bg-red-50' : ''}`}>
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedMerchantIds.includes(merchant.merchant_id)}
+                              onChange={(e) => setSelectedMerchantIds(prev =>
+                                e.target.checked ? [...prev, merchant.merchant_id] : prev.filter(id => id !== merchant.merchant_id)
+                              )}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="font-mono text-xs">{merchant.merchant_id}</span>
+                          </td>
+                          <td className="px-4 py-3 font-medium">{merchant.name}</td>
+                          <td className="px-4 py-3">{merchant.mobile}</td>
+                          <td className="px-4 py-3">
+                            {getStatusBadge(merchant.kyc_status === 'validated' ? 'success' : merchant.kyc_status)}
+                          </td>
+                          <td className="px-4 py-3">{merchant.route || merchant.bank_pipe || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">
+                            {formatDate(merchant.created_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => handleDeleteMerchants([merchant.merchant_id])}
+                              disabled={merchantDeleteLoading}
+                              className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100 disabled:opacity-50"
+                              title="Delete merchant so they can re-register"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {merchants.length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p>No merchants found</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

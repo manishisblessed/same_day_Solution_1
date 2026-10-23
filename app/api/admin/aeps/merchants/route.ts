@@ -107,3 +107,52 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+/**
+ * DELETE /api/admin/aeps/merchants
+ * Delete specific AEPS merchants by merchant_id so they can re-register
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json({ error: 'Database configuration missing' }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { user } = await getCurrentUserWithFallback(request);
+    if (!user || user.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 403 });
+    }
+
+    const { merchant_ids } = await request.json();
+
+    if (!Array.isArray(merchant_ids) || merchant_ids.length === 0) {
+      return NextResponse.json({ error: 'merchant_ids array is required' }, { status: 400 });
+    }
+
+    const { data: deleted, error } = await supabase
+      .from('aeps_merchants')
+      .delete()
+      .in('merchant_id', merchant_ids)
+      .select('merchant_id, name');
+
+    if (error) {
+      console.error('[AEPS Merchants] Delete error:', error);
+      return NextResponse.json({ error: 'Failed to delete merchants' }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      deleted: deleted || [],
+      count: deleted?.length || 0,
+    });
+
+  } catch (error: any) {
+    console.error('[AEPS Merchants] Delete error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to delete merchants' }, { status: 500 });
+  }
+}
