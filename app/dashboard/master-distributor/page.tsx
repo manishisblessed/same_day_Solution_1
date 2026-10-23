@@ -3263,7 +3263,7 @@ function SchemeManagementTab({ user }: { user: any }) {
       // Validate DT charge ≥ MD cost before saving
       if (configType === 'bbps' || configType === 'payout') {
         const adminCostVal = configType === 'payout'
-          ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+          ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
           : getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
         const dtCharge = configType === 'payout' ? (payoutForm.dt_purchase_charge || 0) : (bbpsForm.dt_purchase_charge || 0)
         if (adminCostVal > 0 && dtCharge < adminCostVal) {
@@ -4536,7 +4536,7 @@ function SchemeManagementTab({ user }: { user: any }) {
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex flex-col gap-2">
               {(() => {
                 const adminCostVal = configType === 'payout'
-                  ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                  ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
                   : configType === 'bbps'
                   ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
                   : 0
@@ -4550,7 +4550,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                 <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                 <button onClick={handleSaveConfig} disabled={savingConfig || (() => {
                   const adminCostVal = configType === 'payout'
-                    ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                    ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
                     : configType === 'bbps'
                     ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
                     : 0

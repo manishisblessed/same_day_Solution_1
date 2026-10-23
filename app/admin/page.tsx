@@ -2095,6 +2095,7 @@ function AdminDashboardOverview({
     fetchShadvalBalance()
     fetchPay2newBalance()
     fetchRechargekitBalance()
+    fetchKnteerBalance()
   }, [])
 
   const fetchAnalytics = async () => {

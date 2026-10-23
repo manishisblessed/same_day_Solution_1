@@ -6,10 +6,9 @@
  * Visual design matches ShadvalPayTransfer (Settlement-2) exactly.
  * No "Knteer" branding is exposed to users — the label stays "Settlement-1".
  *
- * Flow differences vs Settlement-2:
- *   - No saved beneficiary accounts (Knteer handles add-bene server-side)
- *   - No penny-drop verification step
- *   - Bank name is a free-text input (no dropdown)
+ * Flow:
+ *   - Bank account verification via penny drop (shared with Settlement-2)
+ *   - User selects a verified account before processing settlement
  *   - Transfer mode is always IMPS
  */
 
@@ -22,8 +21,9 @@ import {
   Building2, User, Hash, IndianRupee, Zap, Clock,
   ArrowRight, CheckCircle2, XCircle, Loader2,
   Wallet, Send, Search, Copy, ArrowLeft,
-  CreditCard, ChevronRight,
+  CreditCard, ChevronRight, Plus, Trash2,
   Download, MessageCircle, Printer, Eye, EyeOff,
+  BadgeCheck, ShieldCheck, ShieldAlert, Sparkles,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -46,6 +46,16 @@ interface TransactionRecord {
   completed_at?: string
 }
 
+interface VerifiedAccount {
+  id: string
+  account_number: string
+  ifsc_code: string
+  account_holder_name: string
+  verified_name?: string
+  is_verified: boolean
+  verification_status?: string
+}
+
 interface KnteerPayoutTransferProps {
   title?: string
 }
@@ -60,12 +70,34 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   const [loadingService, setLoadingService] = useState(true)
 
   // Main view
-  const [activeView, setActiveView] = useState<'home' | 'process-settlement' | 'history'>('home')
+  const [activeView, setActiveView] = useState<'home' | 'process-settlement' | 'add-account' | 'history'>('home')
+
+  // Accounts
+  const [accounts, setAccounts] = useState<VerifiedAccount[]>([])
+  const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const isTrustedUnverified = (a: VerifiedAccount) =>
+    !a.is_verified && (a.verification_status === 'SKIPPED' || a.verification_status === 'NOT_VERIFIED' || !a.verification_status)
+  const settlementAccounts = accounts.filter(a => a.is_verified || isTrustedUnverified(a))
+  const [selectedAccount, setSelectedAccount] = useState<VerifiedAccount | null>(null)
+
+  // Add account state
+  const [newAccNumber, setNewAccNumber] = useState('')
+  const [newConfirmAcc, setNewConfirmAcc] = useState('')
+  const [newIfsc, setNewIfsc] = useState('')
+  const [newBeneName, setNewBeneName] = useState('')
+  const [newContactMobile, setNewContactMobile] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [verifyResult, setVerifyResult] = useState<any>(null)
+  const [showCelebration, setShowCelebration] = useState(false)
+  const [celebrationCountdown, setCelebrationCountdown] = useState(3)
+  const [addingWithoutVerify, setAddingWithoutVerify] = useState(false)
+  const [recheckingId, setRecheckingId] = useState<string | null>(null)
+  const [showNoAccountModal, setShowNoAccountModal] = useState(false)
 
   // Settlement step
-  const [settlementStep, setSettlementStep] = useState<'enter-details' | 'confirm' | 'result'>('enter-details')
+  const [settlementStep, setSettlementStep] = useState<'select-account' | 'enter-details' | 'confirm' | 'result'>('select-account')
 
-  // Form — bank details
+  // Form — bank details (populated from selected account)
   const [bankName, setBankName] = useState('')
   const [accountNumber, setAccountNumber] = useState('')
   const [confirmAccountNumber, setConfirmAccountNumber] = useState('')
@@ -120,6 +152,96 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     }
   }, [])
 
+  // ── Accounts ─────────────────────────────────────────────────────────────────
+
+  const fetchAccounts = useCallback(async () => {
+    setLoadingAccounts(true)
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts')
+      const data = await res.json()
+      if (data.success) setAccounts(data.accounts || [])
+    } catch { /* silent */ }
+    finally { setLoadingAccounts(false) }
+  }, [])
+
+  const handleVerifyAccount = async () => {
+    if (!newAccNumber || newAccNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
+    if (newAccNumber !== newConfirmAcc) return setError('Account numbers do not match')
+    if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) return setError('Enter a valid IFSC code')
+    const cleanedName = newBeneName.trim().replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
+    if (cleanedName.length < 3) return setError('Beneficiary name must be at least 3 letters')
+    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
+    setError(null)
+    setVerifying(true)
+    setVerifyResult(null)
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ account_number: newAccNumber, ifsc_code: newIfsc.toUpperCase(), account_holder_name: cleanedName, contact_name: user?.name || '', contact_email: user?.email || '', contact_mobile: newContactMobile }),
+      })
+      const data = await res.json()
+      setVerifyResult(data)
+      if (data.success) {
+        fetchAccounts()
+        if (data.verified) {
+          setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile('')
+          setShowCelebration(true)
+          setCelebrationCountdown(3)
+        }
+      } else {
+        setError(data.error || 'Verification failed')
+      }
+    } catch (err: any) { setError(err.message || 'Network error') }
+    finally { setVerifying(false) }
+  }
+
+  useEffect(() => {
+    if (!showCelebration) return
+    if (celebrationCountdown <= 0) { setShowCelebration(false); setVerifyResult(null); setActiveView('home'); return }
+    const t = setTimeout(() => setCelebrationCountdown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [showCelebration, celebrationCountdown])
+
+  const handleAddWithoutVerification = async () => {
+    if (!newAccNumber || newAccNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
+    if (newAccNumber !== newConfirmAcc) return setError('Account numbers do not match')
+    if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) return setError('Enter a valid IFSC code')
+    const cleanedName = newBeneName.trim().replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
+    if (cleanedName.length < 3) return setError('Beneficiary name must be at least 3 letters')
+    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
+    setError(null)
+    setAddingWithoutVerify(true)
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ account_number: newAccNumber, ifsc_code: newIfsc.toUpperCase(), account_holder_name: cleanedName, contact_name: user?.name || '', contact_email: user?.email || '', contact_mobile: newContactMobile, skip_verification: true }),
+      })
+      const data = await res.json()
+      if (data.success) { fetchAccounts(); setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile(''); setActiveView('home') }
+      else setError(data.error || 'Failed to add account')
+    } catch (err: any) { setError(err.message || 'Network error') }
+    finally { setAddingWithoutVerify(false) }
+  }
+
+  const handleRecheckVerification = async (accountId: string) => {
+    setRecheckingId(accountId)
+    try {
+      const res = await apiFetch('/api/settlement-2/accounts', { method: 'PATCH', body: JSON.stringify({ account_id: accountId }) })
+      const data = await res.json()
+      if (data.success && data.verified) setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, is_verified: true, verification_status: 'SUCCESS', verified_name: data.account?.verified_name || a.verified_name } : a))
+      else if (data.verification_status) setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, verification_status: data.verification_status } : a))
+    } catch { /* silent */ }
+    finally { setRecheckingId(null) }
+  }
+
+  const handleDeleteAccount = async (accountId: string) => {
+    try {
+      const res = await apiFetch(`/api/settlement-2/accounts?id=${accountId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) setAccounts(prev => prev.filter(a => a.id !== accountId))
+    } catch { /* silent */ }
+  }
+
   // ── Charges (debounced) ─────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -167,7 +289,8 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   useEffect(() => {
     fetchServiceStatus()
     fetchTransactions()
-  }, [fetchServiceStatus, fetchTransactions])
+    fetchAccounts()
+  }, [fetchServiceStatus, fetchTransactions, fetchAccounts])
 
   // Auto-fill sender from profile
   useEffect(() => {
@@ -255,8 +378,13 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   // ── Handle process settlement ───────────────────────────────────────────────
 
   const handleProcessSettlement = () => {
+    if (settlementAccounts.length === 0) {
+      setShowNoAccountModal(true)
+      return
+    }
     setActiveView('process-settlement')
-    setSettlementStep('enter-details')
+    setSettlementStep('select-account')
+    setSelectedAccount(null)
     setAmount('')
     setCharges(0)
     setSchemeMessage(null)
@@ -264,21 +392,28 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     setError(null)
   }
 
+  const handleSelectAccount = (acct: VerifiedAccount) => {
+    setSelectedAccount(acct)
+    setAccountNumber(acct.account_number)
+    setConfirmAccountNumber(acct.account_number)
+    setIfscCode(acct.ifsc_code)
+    setAccountHolderName(acct.verified_name || acct.account_holder_name)
+    setBankName(acct.ifsc_code.substring(0, 4))
+    setBeneficiaryMobile(senderMobile || '')
+    setSettlementStep('enter-details')
+  }
+
   // ── Validation → confirm ────────────────────────────────────────────────────
 
   const handleProceedToConfirm = () => {
-    if (!bankName || bankName.trim().length < 2) return setError('Please enter the bank name')
-    if (!accountNumber || accountNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
-    if (accountNumber !== confirmAccountNumber) return setError('Account numbers do not match')
-    if (!ifscCode || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(ifscCode)) return setError('Enter a valid IFSC code (e.g. SBIN0001234)')
-    if (!accountHolderName || accountHolderName.trim().length < 2) return setError('Enter the account holder name')
-    if (!beneficiaryMobile || !/^[6-9]\d{9}$/.test(beneficiaryMobile)) return setError('Enter a valid 10-digit beneficiary mobile number')
+    if (!selectedAccount) return setError('Please select a bank account')
     if (!amountNum || amountNum < 100) return setError('Minimum transfer amount is ₹100')
     if (amountNum > 200000) return setError('Maximum transfer amount is ₹2,00,000')
     if (schemeMessage) return setError(schemeMessage)
     if (!senderName || senderName.trim().length < 2) return setError('Please fill in your Sender Name')
     if (!senderMobile || !/^[6-9]\d{9}$/.test(senderMobile)) return setError('Please fill in a valid 10-digit Sender Mobile')
     setError(null)
+    setBeneficiaryMobile(senderMobile)
     setSettlementStep('confirm')
   }
 
@@ -442,11 +577,11 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
               </div>
             </motion.button>
 
-            {/* Card 2: Transaction History */}
+            {/* Card 2: Add Bank Account */}
             <motion.button
               whileHover={{ y: -4 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => { setActiveView('history'); fetchTransactions() }}
+              onClick={() => { setActiveView('add-account'); setError(null); setVerifyResult(null) }}
               className="group text-left relative bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow-2xl hover:shadow-emerald-500/10 transition-all p-6 overflow-hidden"
             >
               <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-gradient-to-br from-emerald-400/20 to-teal-400/20 blur-2xl group-hover:scale-150 transition-transform duration-700" />
@@ -455,35 +590,82 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
               </div>
               <div className="relative">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4 group-hover:scale-110 group-hover:rotate-3 transition-all shadow-lg shadow-emerald-500/30">
-                  <Clock className="w-7 h-7 text-white" />
+                  <Plus className="w-7 h-7 text-white" />
                 </div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Transaction History</h3>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Add Bank Account</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  View your recent settlements and check status
+                  Verify with penny drop & add to your beneficiary list
                 </p>
-                {transactions.length > 0 ? (
-                  <div className="mt-4 flex items-center gap-2 flex-wrap">
-                    {transactions.filter(t => t.status === 'SUCCESS').length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {transactions.filter(t => t.status === 'SUCCESS').length} successful
-                      </span>
-                    )}
-                    {transactions.filter(t => ['PENDING', 'PROCESSING'].includes(t.status)).length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-semibold">
-                        <Clock className="w-3 h-3" />
-                        {transactions.filter(t => ['PENDING', 'PROCESSING'].includes(t.status)).length} pending
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-4 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs">
-                    No transactions yet
-                  </div>
-                )}
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+                    <Sparkles className="w-3 h-3" />
+                    ₹4 + GST
+                  </span>
+                  <span className="text-xs text-gray-400">One-time per account</span>
+                </div>
               </div>
             </motion.button>
           </div>
+
+          {/* Saved Accounts List */}
+          {accounts.length > 0 && (
+            <div className="mt-6 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
+              <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  Bank Accounts ({accounts.length})
+                </h3>
+                <button onClick={fetchAccounts} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+                  <RefreshCw className={`w-4 h-4 text-gray-400 ${loadingAccounts ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                {accounts.map(acct => (
+                  <div key={acct.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/30">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${acct.is_verified ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
+                        <Building2 className={`w-5 h-5 ${acct.is_verified ? 'text-blue-600' : 'text-amber-600'}`} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white text-sm">{acct.verified_name || acct.account_holder_name}</p>
+                        <p className="text-xs text-gray-500 font-mono">{acct.account_number} | {acct.ifsc_code}</p>
+                        {!acct.is_verified && (
+                          <p className={`text-xs mt-0.5 ${isTrustedUnverified(acct) ? 'text-amber-600' : acct.verification_status === 'PENDING' ? 'text-amber-600' : 'text-red-500'}`}>
+                            {isTrustedUnverified(acct) ? 'Not verified — transfers at your own risk' : acct.verification_status === 'PENDING' ? 'Verification pending — use Re-check' : 'Verification failed — re-check or delete'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {acct.is_verified ? (
+                        <BadgeCheck className="w-4 h-4 text-emerald-500" />
+                      ) : isTrustedUnverified(acct) ? (
+                        <ShieldAlert className="w-4 h-4 text-amber-500" />
+                      ) : (
+                        <>
+                          {acct.verification_status !== 'PENDING' && <XCircle className="w-4 h-4 text-red-500" />}
+                          <button onClick={() => handleRecheckVerification(acct.id)} disabled={recheckingId === acct.id}
+                            className="px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1">
+                            {recheckingId === acct.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Re-check
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => handleDeleteAccount(acct.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick access to history */}
+          {transactions.length > 0 && (
+            <button onClick={() => { setActiveView('history'); fetchTransactions() }} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+              <Clock className="w-4 h-4" /> View {transactions.length} recent transaction{transactions.length !== 1 ? 's' : ''}
+            </button>
+          )}
 
           {/* Recent transactions preview on home */}
           {transactions.length > 0 && (
@@ -554,6 +736,98 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
         </motion.div>
       )}
 
+      {/* ─── NO ACCOUNT MODAL ───────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showNoAccountModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowNoAccountModal(false)}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-900 rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
+              <div className="text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <AlertTriangle className="w-8 h-8 text-amber-600" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">No Bank Account Added</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">You need to add and verify a bank account before processing settlements.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowNoAccountModal(false)} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">Cancel</button>
+                  <button onClick={() => { setShowNoAccountModal(false); setActiveView('add-account'); setError(null); setVerifyResult(null) }}
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 text-white font-medium shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2">
+                    <Plus className="w-4 h-4" /> Add Account
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── ADD ACCOUNT VIEW ──────────────────────────────────────────────── */}
+      {activeView === 'add-account' && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <button onClick={() => { setActiveView('home'); setError(null); setVerifyResult(null) }} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 mb-4">
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
+
+          {showCelebration ? (
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-12">
+              <div className="text-6xl mb-4">🎉</div>
+              <h3 className="text-xl font-bold text-emerald-600 mb-2">Account Verified!</h3>
+              <p className="text-sm text-gray-500">Bank confirmed the account. Redirecting in {celebrationCountdown}s...</p>
+            </motion.div>
+          ) : (
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Add Bank Account</h3>
+              <p className="text-sm text-gray-500 mb-5">Verify with penny drop & add to your beneficiary list</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Account Number</label>
+                  <input type="text" value={newAccNumber} onChange={e => setNewAccNumber(e.target.value.replace(/\D/g, ''))} placeholder="Enter account number" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Confirm Account Number</label>
+                  <input type="text" value={newConfirmAcc} onChange={e => setNewConfirmAcc(e.target.value.replace(/\D/g, ''))} placeholder="Re-enter account number" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">IFSC Code</label>
+                  <input type="text" value={newIfsc} onChange={e => setNewIfsc(e.target.value.toUpperCase())} placeholder="e.g. SBIN0001234" maxLength={11} className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 uppercase" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Account Holder Name</label>
+                  <input type="text" value={newBeneName} onChange={e => setNewBeneName(e.target.value)} placeholder="As per bank records" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mobile Number</label>
+                  <input type="tel" value={newContactMobile} onChange={e => setNewContactMobile(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" maxLength={10} className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+                </div>
+              </div>
+
+              {verifyResult && !verifyResult.verified && verifyResult.error && (
+                <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">{verifyResult.error}</div>
+              )}
+              {verifyResult && verifyResult.verified && (
+                <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" /> Account verified: {verifyResult.account?.verified_name}
+                </div>
+              )}
+
+              <div className="mt-6 flex gap-3">
+                <button onClick={handleVerifyAccount} disabled={verifying || addingWithoutVerify}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                  {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
+                  {verifying ? 'Verifying...' : 'Verify with Penny Drop (₹4 + GST)'}
+                </button>
+              </div>
+              <button onClick={handleAddWithoutVerification} disabled={verifying || addingWithoutVerify}
+                className="mt-2 w-full py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {addingWithoutVerify ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
+                Add without verification (at your risk)
+              </button>
+            </div>
+          )}
+        </motion.div>
+      )}
+
       {/* ─── PROCESS SETTLEMENT VIEW ────────────────────────────────────────── */}
       {activeView === 'process-settlement' && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -564,125 +838,68 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
 
+          {/* ── Step: Select Account ── */}
+          {settlementStep === 'select-account' && (
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Select Bank Account</h3>
+              <p className="text-sm text-gray-500 mb-5">Choose a verified bank account for settlement</p>
+              <div className="space-y-3">
+                {settlementAccounts.map(acct => (
+                  <button key={acct.id} onClick={() => handleSelectAccount(acct)}
+                    className="w-full text-left p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-all flex items-center gap-3 group">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{acct.verified_name || acct.account_holder_name}</p>
+                      <p className="text-xs text-gray-500 font-mono">{acct.account_number} | {acct.ifsc_code}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {acct.is_verified ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full"><BadgeCheck className="w-3 h-3" /> Verified</span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full"><ShieldAlert className="w-3 h-3" /> Unverified</span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {accounts.length > settlementAccounts.length && (
+                <p className="mt-3 text-xs text-gray-400 text-center">
+                  {accounts.length - settlementAccounts.length} account(s) with failed verification hidden
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ── Step: Enter Details ── */}
           {settlementStep === 'enter-details' && (
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
               <div className="p-5 border-b border-gray-100 dark:border-gray-800">
                 <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                   <Building2 className="w-5 h-5 text-blue-600" />
-                  Bank Account Details
+                  Settlement Details
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">Enter the beneficiary's bank details to process settlement</p>
+                <p className="text-xs text-gray-500 mt-1">Enter amount to transfer to selected account</p>
               </div>
               <div className="p-5 space-y-4">
 
-                {/* Bank Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bank Name *</label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      value={bankName}
-                      onChange={e => setBankName(e.target.value)}
-                      placeholder="e.g., State Bank of India"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    />
-                  </div>
-                </div>
-
-                {/* Account Number */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Number *</label>
-                    <div className="relative">
-                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        value={accountNumber}
-                        onChange={e => setAccountNumber(e.target.value.replace(/\D/g, ''))}
-                        placeholder="Enter account number"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        maxLength={18}
-                      />
+                {/* Selected Account Card */}
+                {selectedAccount && (
+                  <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-800/30 flex items-center justify-center">
+                        <Building2 className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-gray-900 dark:text-white">{selectedAccount.verified_name || selectedAccount.account_holder_name}</p>
+                        <p className="text-xs text-gray-500 font-mono">{selectedAccount.account_number} | {selectedAccount.ifsc_code}</p>
+                      </div>
                     </div>
+                    <button onClick={() => setSettlementStep('select-account')} className="text-xs text-blue-600 hover:underline">Change</button>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm Account Number *</label>
-                    <div className="relative">
-                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        value={confirmAccountNumber}
-                        onChange={e => setConfirmAccountNumber(e.target.value.replace(/\D/g, ''))}
-                        placeholder="Re-enter account number"
-                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl border ${
-                          confirmAccountNumber && confirmAccountNumber !== accountNumber
-                            ? 'border-red-400 focus:ring-red-500'
-                            : confirmAccountNumber && confirmAccountNumber === accountNumber
-                            ? 'border-green-400 focus:ring-green-500'
-                            : 'border-gray-300 dark:border-gray-700'
-                        } bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent transition-all`}
-                        maxLength={18}
-                      />
-                      {confirmAccountNumber && confirmAccountNumber === accountNumber && (
-                        <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* IFSC + Name */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IFSC Code *</label>
-                    <div className="relative">
-                      <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        value={ifscCode}
-                        onChange={e => setIfscCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                        placeholder="e.g. SBIN0001234"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                        maxLength={11}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Holder Name *</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        value={accountHolderName}
-                        onChange={e => setAccountHolderName(e.target.value)}
-                        placeholder="As per bank records"
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Beneficiary Mobile */}
-                <div className="max-w-xs">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Beneficiary Mobile *</label>
-                  <input
-                    type="tel"
-                    value={beneficiaryMobile}
-                    onChange={e => setBeneficiaryMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="10-digit mobile number"
-                    className={`w-full px-4 py-2.5 rounded-xl border ${
-                      beneficiaryMobile && beneficiaryMobile.length === 10
-                        ? 'border-green-400 focus:ring-green-500'
-                        : beneficiaryMobile && beneficiaryMobile.length > 0 && beneficiaryMobile.length < 10
-                        ? 'border-amber-400 focus:ring-amber-500'
-                        : 'border-gray-300 dark:border-gray-700'
-                    } bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent transition-all`}
-                  />
-                  {beneficiaryMobile && beneficiaryMobile.length > 0 && beneficiaryMobile.length < 10 && (
-                    <p className="text-xs text-amber-600 mt-1">Enter complete 10-digit mobile number</p>
-                  )}
-                </div>
+                )}
 
                 {/* Amount */}
                 <div>

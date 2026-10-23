@@ -3975,7 +3975,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
       // Validate charge ≥ cost before saving
       if (configType === 'bbps' || configType === 'payout') {
         const adminCostVal = configType === 'payout'
-          ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+          ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
           : getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
         const rtCharge = configType === 'payout' ? (payoutForm.rt_purchase_charge || 0) : (bbpsForm.rt_purchase_charge || 0)
         if (adminCostVal > 0 && rtCharge < adminCostVal) {
@@ -4021,7 +4021,8 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
         configData = { ...payoutForm }
         if (adminCost) { configData.dt_purchase_charge = adminCost.value; configData.dt_purchase_charge_type = adminCost.type }
         // Also persist MD's own cost for full chain visibility in admin
-        const mdCfg = adminConfigs.shadval.find((c: any) => c.min_amount <= payoutForm.min_amount && c.max_amount >= payoutForm.max_amount && c.transfer_mode === payoutForm.transfer_mode)
+        const mdCfgSource = settlementTypeSelection === 'payout' ? adminConfigs.payout : adminConfigs.shadval
+        const mdCfg = mdCfgSource.find((c: any) => c.min_amount <= payoutForm.min_amount && c.max_amount >= payoutForm.max_amount && c.transfer_mode === payoutForm.transfer_mode)
         if (mdCfg?.md_purchase_charge) { configData.md_purchase_charge = mdCfg.md_purchase_charge; configData.md_purchase_charge_type = mdCfg.md_purchase_charge_type || 'flat' }
         if (configData.rt_purchase_charge) { configData.retailer_charge = configData.rt_purchase_charge; configData.retailer_charge_type = configData.rt_purchase_charge_type || 'flat' }
       } else if (configType === 'shadval_settlement') {
@@ -5264,7 +5265,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0 flex flex-col gap-2">
               {(() => {
                 const adminCostVal = configType === 'payout'
-                  ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                  ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
                   : configType === 'bbps'
                   ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
                   : 0
@@ -5278,7 +5279,7 @@ function SchemeManagementTab({ user, retailers, onRefresh }: { user: any, retail
                 <button onClick={() => setShowConfigModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                 <button onClick={handleSaveConfig} disabled={savingConfig || (() => {
                   const adminCostVal = configType === 'payout'
-                    ? getAdminCost('shadval_settlement', { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
+                    ? getAdminCost(settlementTypeSelection, { transfer_mode: payoutForm.transfer_mode, min_amount: payoutForm.min_amount, max_amount: payoutForm.max_amount })?.value ?? 0
                     : configType === 'bbps'
                     ? getAdminCost('bbps', { bbps_type: bbpsForm.bbps_type, min_amount: bbpsForm.min_amount, max_amount: bbpsForm.max_amount })?.value ?? 0
                     : 0

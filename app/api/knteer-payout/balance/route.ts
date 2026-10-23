@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const { user } = await getCurrentUserWithFallback(request)
     normalizeMasterPartner(user)
 
-    if (!user || !['admin', 'partner'].includes(user.role || '')) {
+    if (!user || !['admin', 'partner', 'master_distributor', 'distributor', 'retailer'].includes(user.role || '')) {
       return addCorsHeaders(request, NextResponse.json({ success: false, error: 'Access denied' }, { status: 403 }))
     }
 
