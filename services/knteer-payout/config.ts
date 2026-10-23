@@ -6,8 +6,9 @@ export function getKnteerBaseUrl(): string {
   return process.env.KNTEER_API_BASE_URL || 'https://api.knteersolution.com/Prod'
 }
 
+/** PT-format partnerId used in JWT payload (e.g. PT123456) */
 export function getKnteerPartnerId(): string {
-  return process.env.KNTEER_MSR_ID || process.env.KNTEER_PARTNER_ID || ''
+  return process.env.KNTEER_PARTNER_ID || ''
 }
 
 /** HS256 JWT signing secret provided by Knteer (portal: JwtToken) */
@@ -51,7 +52,7 @@ export function validateKnteerCredentials(): void {
   const secret = getKnteerPartnerSecret()
   if (!partnerId || !secret) {
     throw new Error(
-      'Knteer credentials not configured. Set KNTEER_MSR_ID and KNTEER_JWT_TOKEN.'
+      'Knteer credentials not configured. Set KNTEER_PARTNER_ID (PT format, e.g. PT123456) and KNTEER_JWT_TOKEN.'
     )
   }
 }
