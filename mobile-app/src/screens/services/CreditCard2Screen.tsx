@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '@/theme';
-import { Screen, Card, Input, Button, Loading, EmptyState, TpinSheet } from '@/components';
+import { Screen, Card, Input, Button, Loading, EmptyState, TpinSheet, TransactionReceiptModal, ReceiptData } from '@/components';
 import { fetchRkOperators, fetchRkCharges, rkPay, RkOperator } from '@/api/rechargekit';
 import { ApiError } from '@/lib/api';
 import { formatCurrency } from '@/utils/format';
@@ -21,6 +21,7 @@ export const CreditCard2Screen: React.FC = () => {
   const [amount, setAmount] = useState('');
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const amt = parseFloat(amount) || 0;
   const opQ = useQuery({ queryKey: ['rk-operators'], queryFn: fetchRkOperators });
@@ -46,9 +47,18 @@ export const CreditCard2Screen: React.FC = () => {
       });
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
-      Alert.alert(res.success ? 'Payment submitted' : 'Payment status', `${res.pending ? 'PROCESSING' : 'DONE'}\nOrder: ${res.order_id}\n${res.message || ''}`, [
-        { text: 'Done', onPress: () => nav.goBack() },
-      ]);
+      setReceipt({
+        status: res.pending ? 'pending' : res.success ? 'success' : 'failed',
+        service: 'Credit Card-2',
+        subService: operator?.operator_name,
+        amount: amt,
+        orderId: res.order_id,
+        customerName: name.trim(),
+        accountNumber: card.trim(),
+        bankName: bankName.trim(),
+        message: res.message || undefined,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       setTpinOpen(false);
       Alert.alert('Payment failed', e instanceof ApiError ? e.message : 'Please try again.');
@@ -86,6 +96,7 @@ export const CreditCard2Screen: React.FC = () => {
 
       <Button title={`Pay ${amt ? formatCurrency(amt) : ''}`} size="lg" fullWidth style={{ marginTop: spacing.lg }} disabled={!valid} onPress={() => setTpinOpen(true)} />
       <TpinSheet visible={tpinOpen} amount={amt} submitting={submitting} onCancel={() => setTpinOpen(false)} onConfirm={doPay} />
+      <TransactionReceiptModal visible={!!receipt} data={receipt} onDone={() => { setReceipt(null); nav.goBack(); }} />
     </Screen>
   );
 };

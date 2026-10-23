@@ -18,7 +18,7 @@ const VALID_MERCHANTS: Record<string, string> = {
   teachway: 'TEACHWAY - AXIS',
   newscenaric: 'NEW SCENARIC - HDFC',
   lagoon: 'LAGOON - HDFC',
-  samedaytours: 'SAMEDAY - HDFC',
+  samedaytours: 'SAMEDAY T&T - HDFC',
 }
 
 /**

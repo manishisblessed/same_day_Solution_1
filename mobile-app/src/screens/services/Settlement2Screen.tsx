@@ -177,8 +177,9 @@ export const Settlement2Screen: React.FC = () => {
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
       const t = res.transaction;
+      const st = (t.status || '').toLowerCase();
       setReceipt({
-        status: (t.status || '').toLowerCase() === 'success' ? 'success' : 'pending',
+        status: st === 'success' ? 'success' : st === 'failed' ? 'failed' : 'pending',
         service: 'Settlement-2',
         subService: `${mode} Transfer`,
         amount: t.amount ?? amt,

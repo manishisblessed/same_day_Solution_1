@@ -14,7 +14,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   lagoon: 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED',
   avika: 'AVIKA DEPARTMENTAL PRIVATE LIMITED',
   'avika-axis': 'AVIKA DEPARTMENTAL PRIVATE LIMITED',
-  samedaytours: 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED',
+  samedaytours: 'SAMEDAY T&T - HDFC',
 }
 
 const SHORT_NAMES: Record<string, string> = {
@@ -24,7 +24,7 @@ const SHORT_NAMES: Record<string, string> = {
   lagoon: 'LAGOON CRAFT LABS PVT. LTD.',
   avika: 'AVIKA DEPARTMENTAL PVT. LTD.',
   'avika-axis': 'AVIKA DEPARTMENTAL PVT. LTD.',
-  samedaytours: 'SAMEDAY TOUR AND TRAVELS PVT. LTD.',
+  samedaytours: 'SAMEDAY T&T - HDFC',
 }
 
 export interface PosCompany {

@@ -63,7 +63,7 @@ export const PayoutScreen: React.FC = () => {
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
       setReceipt({
-        status: res.success ? 'success' : 'pending',
+        status: res.success ? 'success' : res.status?.toLowerCase() === 'failed' ? 'failed' : 'pending',
         service: 'Settlement-1 (Payout)',
         subService: `${mode} Transfer`,
         amount: res.amount ?? amt,

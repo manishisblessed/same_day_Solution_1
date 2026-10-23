@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
           newscenaric: 'NEW SCENARIC - HDFC',
           lagoon: 'LAGOON - HDFC',
           avika: 'AVIKA - HDFC',
-          samedaytours: 'SAMEDAY - HDFC',
+          samedaytours: 'SAMEDAY T&T - HDFC',
         }
         await supabase
           .from('razorpay_pos_transactions')

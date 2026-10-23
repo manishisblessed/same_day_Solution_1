@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, typography } from '@/theme';
-import { Screen, Card, Input, Button, Pill, Loading, EmptyState, TpinSheet } from '@/components';
+import { Screen, Card, Input, Button, Pill, Loading, EmptyState, TpinSheet, TransactionReceiptModal, ReceiptData } from '@/components';
 import { fetchBbpsCategories, fetchBbpsBillers, fetchBill, payBill, BbpsBiller } from '@/api/bbps';
 import { ApiError } from '@/lib/api';
 import { formatCurrency, toPaise } from '@/utils/format';
@@ -19,6 +19,7 @@ export const BbpsScreen: React.FC = () => {
   const [fetching, setFetching] = useState(false);
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const catQ = useQuery({ queryKey: ['bbps-cats'], queryFn: fetchBbpsCategories });
   const billerQ = useQuery({ queryKey: ['bbps-billers', category], queryFn: () => fetchBbpsBillers(category), enabled: !!category });
@@ -60,9 +61,17 @@ export const BbpsScreen: React.FC = () => {
       });
       setTpinOpen(false);
       qc.invalidateQueries({ queryKey: ['wallet'] });
-      Alert.alert(res.success ? 'Payment successful' : 'Payment status', `${(res.payment_status || res.status || '').toUpperCase()}\nTxn: ${res.transaction_id || res.bbps_transaction_id || '—'}${res.error_message ? `\n${res.error_message}` : ''}`, [
-        { text: 'Done', onPress: () => nav.goBack() },
-      ]);
+      const ps = (res.payment_status || res.status || '').toLowerCase();
+      setReceipt({
+        status: ps === 'success' ? 'success' : ps === 'failed' ? 'failed' : 'pending',
+        service: 'BBPS Bill Payment',
+        subService: biller?.biller_name,
+        amount: bill!.amount,
+        transactionId: res.transaction_id || res.bbps_transaction_id,
+        customerName: bill?.name,
+        message: res.error_message || undefined,
+        timestamp: new Date().toISOString(),
+      });
     } catch (e) {
       setTpinOpen(false);
       Alert.alert('Payment failed', e instanceof ApiError ? e.message : 'Please try again.');
@@ -120,6 +129,7 @@ export const BbpsScreen: React.FC = () => {
       )}
 
       <TpinSheet visible={tpinOpen} amount={bill?.amount} submitting={submitting} onCancel={() => setTpinOpen(false)} onConfirm={doPay} />
+      <TransactionReceiptModal visible={!!receipt} data={receipt} onDone={() => { setReceipt(null); nav.goBack(); }} />
     </Screen>
   );
 };

@@ -175,7 +175,7 @@ function RazorpayTransactionsPageContent() {
     { slug: 'lagoon', name: 'LAGOON - HDFC', shortName: 'LAGOON - HDFC' },
     { slug: 'AVIKA-HDFC', name: 'AVIKA - HDFC', shortName: 'AVIKA - HDFC' },
     { slug: 'AVIKA-AXIS', name: 'AVIKA - AXIS', shortName: 'AVIKA - AXIS' },
-    { slug: 'samedaytours', name: 'SAMEDAY - HDFC', shortName: 'SAMEDAY - HDFC' },
+    { slug: 'samedaytours', name: 'SAMEDAY T&T - HDFC', shortName: 'SAMEDAY T&T - HDFC' },
   ]
 
   // Companies shown in the filter dropdown: active only, unless "show archived" is on
@@ -1319,7 +1319,7 @@ function RazorpayTransactionsPageContent() {
                         <option value="avika">AVIKA (all)</option>
                         <option value="AVIKA-HDFC">AVIKA - HDFC</option>
                         <option value="AVIKA-AXIS">AVIKA - AXIS</option>
-                        <option value="samedaytours">SAMEDAY - HDFC</option>
+                        <option value="samedaytours">SAMEDAY T&T - HDFC</option>
                       </select>
                     </th>
                     {/* Provider */}

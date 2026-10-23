@@ -33,7 +33,7 @@ function getCompanyName(merchantName: string | null, slug: string | null, machin
     case 'newscenaric': return 'NEW SCENARIC TRAVELS'
     case 'lagoon': return 'LAGOON CRAFT LABS SOLUTIONS PRIVATE LIMITED'
     case 'avika': return 'AVIKA DEPARTMENTAL PRIVATE LIMITED'
-    case 'samedaytours': return 'SAMEDAY TOUR AND TRAVELS PRIVATE LIMITED'
+    case 'samedaytours': return 'SAMEDAY T&T - HDFC'
     default: return merchantName || 'ASHVAM LEARNING PRIVATE LIMITED'
   }
 }

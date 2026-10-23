@@ -29,7 +29,7 @@ export function machineGroupLabel(group: MachineGroup): string {
  */
 const COMPANY_FLEET_LABELS: Record<string, string> = {
   teachway: 'TEACHWAY - AXIS',
-  samedaytours: 'SAMEDAY - HDFC',
+  samedaytours: 'SAMEDAY T&T - HDFC',
   lagoon: 'LAGOON - HDFC',
   ashvam: 'ASHVAM - HDFC',
   newscenaric: 'NEW SCENARIC - HDFC',

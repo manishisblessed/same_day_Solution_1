@@ -41,7 +41,7 @@ const COMPANY_OPTIONS = [
   { value: 'newscenaric', label: 'NEW SCENARIC - HDFC' },
   { value: 'lagoon', label: 'LAGOON - HDFC' },
   { value: 'avika', label: 'AVIKA - HDFC' },
-  { value: 'samedaytours', label: 'SAMEDAY - HDFC' },
+  { value: 'samedaytours', label: 'SAMEDAY T&T - HDFC' },
 ]
 const BRAND_OPTIONS = ['all', 'VISA', 'MASTER_CARD', 'RUPAY', 'AMEX', 'MAESTRO']
 const MODE_OPTIONS = ['all', 'CARD', 'UPI']
