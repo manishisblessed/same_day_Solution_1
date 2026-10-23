@@ -12,6 +12,13 @@ const PAYOUT_SCHEME_BANDS = [
   { min: 25001, max: 50000 },
   { min: 50001, max: 100000 },
 ]
+const SETTLEMENT_1_SCHEME_BANDS = [
+  { min: 100, max: 1000 },
+  { min: 1001, max: 25000 },
+  { min: 25001, max: 50000 },
+  { min: 50001, max: 100000 },
+  { min: 100001, max: 200000 },
+]
 
 import { useState, useEffect, useMemo, Suspense, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -3161,13 +3168,11 @@ function SchemeManagementTab({ user }: { user: any }) {
 
   const openConfigModal = (schemeId: string, type: 'bbps' | 'payout' | 'mdr' | 'aeps' | 'aeps_settlement' | 'shadval_settlement', editData?: any) => {
     setConfigSchemeId(schemeId)
-    // Only Settlement-2 (shadval) is available
     if (type === 'payout' || type === 'shadval_settlement') {
       setConfigType('payout')
-      setSettlementTypeSelection('shadval_settlement')
+      setSettlementTypeSelection(type === 'shadval_settlement' ? 'shadval_settlement' : 'payout')
     } else {
       setConfigType(type)
-      setSettlementTypeSelection('shadval_settlement')
     }
     setEditingConfigId(editData?.id || null)
     if (editData) {
@@ -3651,7 +3656,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                               const fmt = (v: number, t: string) => t === 'percentage' ? `${v}%` : `₹${v}`
                               return (
                               <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700">
-                                <td className="px-2 py-1.5"><span className="px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">Settlement-2</span></td>
+                                <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-xs font-medium ${c._stype === 'payout' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'}`}>{c._stype === 'payout' ? 'Settlement-1' : 'Settlement-2'}</span></td>
                                 <td className="px-2 py-1.5">{c.transfer_mode}</td>
                                 <td className="px-2 py-1.5">{`₹${c.min_amount} - ₹${c.max_amount >= 999999 ? '∞' : c.max_amount}`}</td>
                                 {scheme.is_partner_plan ? (
@@ -3966,7 +3971,7 @@ function SchemeManagementTab({ user }: { user: any }) {
             <div className="px-6 pt-5 pb-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 {configType === 'bbps' && <><CreditCard className="w-5 h-5 text-blue-600" /> {editingConfigId ? 'Edit' : 'Add'} BBPS Commission</>}
-                {configType === 'payout' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} Settlement-2 Charge</>}
+                {configType === 'payout' && <><Banknote className="w-5 h-5 text-rose-600" /> {editingConfigId ? 'Edit' : 'Add'} {settlementTypeSelection === 'payout' ? 'Settlement-1' : 'Settlement-2'} Charge</>}
                 {configType === 'mdr' && <><TrendingUp className="w-5 h-5 text-orange-600" /> {editingConfigId ? 'Edit' : 'Add'} MDR Rate</>}
                 {configType === 'aeps' && <><Banknote className="w-5 h-5 text-teal-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Commission</>}
                 {configType === 'aeps_settlement' && <><DollarSign className="w-5 h-5 text-purple-600" /> {editingConfigId ? 'Edit' : 'Add'} AEPS Settlement Charge</>}
@@ -4069,6 +4074,21 @@ function SchemeManagementTab({ user }: { user: any }) {
             {configType === 'payout' && (
               <div className="space-y-2">
                 <div>
+                  <label className="block text-sm font-medium mb-1">Settlement Type</label>
+                  <select value={settlementTypeSelection}
+                    onChange={(e) => {
+                      const val = e.target.value as 'payout' | 'shadval_settlement'
+                      setSettlementTypeSelection(val)
+                      const bands = val === 'payout' ? SETTLEMENT_1_SCHEME_BANDS : PAYOUT_SCHEME_BANDS
+                      setPayoutForm(prev => ({ ...prev, min_amount: bands[0].min, max_amount: bands[0].max }))
+                    }}
+                    disabled={!!editingConfigId}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                    <option value="payout">Settlement-1 (Knteer - Account Transfer)</option>
+                    <option value="shadval_settlement">Settlement-2 (Shadval - Account Transfer)</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Transfer Mode</label>
                   <select value={payoutForm.transfer_mode} onChange={(e) => setPayoutForm({ ...payoutForm, transfer_mode: e.target.value as any })}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
@@ -4080,7 +4100,7 @@ function SchemeManagementTab({ user }: { user: any }) {
                   <select value={`${payoutForm.min_amount}-${payoutForm.max_amount}`}
                     onChange={(e) => { const [min, max] = e.target.value.split('-').map(Number); setPayoutForm({ ...payoutForm, min_amount: min, max_amount: max }) }}
                     className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-800 dark:border-gray-700">
-                    {PAYOUT_SCHEME_BANDS.map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
+                    {(settlementTypeSelection === 'payout' ? SETTLEMENT_1_SCHEME_BANDS : PAYOUT_SCHEME_BANDS).map(b => <option key={b.max} value={`${b.min}-${b.max}`}>₹{b.min.toLocaleString('en-IN')} – ₹{b.max.toLocaleString('en-IN')}</option>)}
                   </select>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 mb-2">

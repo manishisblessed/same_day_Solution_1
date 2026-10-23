@@ -2899,10 +2899,10 @@ function MDRSchemesTab({ user }: { user: any }) {
           >
             <div className="flex items-center gap-2 mb-4">
               <Banknote className="w-5 h-5 text-green-600 dark:text-green-400" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement Charges</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settlement-1 Charges</h3>
               <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 px-2 py-0.5 rounded-full">From Scheme</span>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for bank settlements (IMPS transfers)</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Charges for Settlement-1 (Knteer) bank transfers</p>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-700">
