@@ -46,14 +46,15 @@ interface TransactionRecord {
   completed_at?: string
 }
 
-interface VerifiedAccount {
+interface KnteerAccount {
   id: string
   account_number: string
   ifsc_code: string
   account_holder_name: string
-  verified_name?: string
-  is_verified: boolean
-  verification_status?: string
+  bank_name?: string
+  bene_code?: string
+  mobile?: string
+  is_registered: boolean
 }
 
 interface KnteerPayoutTransferProps {
@@ -72,13 +73,10 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   // Main view
   const [activeView, setActiveView] = useState<'home' | 'process-settlement' | 'add-account' | 'history'>('home')
 
-  // Accounts
-  const [accounts, setAccounts] = useState<VerifiedAccount[]>([])
+  // Accounts (Knteer beneficiaries)
+  const [accounts, setAccounts] = useState<KnteerAccount[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
-  const isTrustedUnverified = (a: VerifiedAccount) =>
-    !a.is_verified && (a.verification_status === 'SKIPPED' || a.verification_status === 'NOT_VERIFIED' || !a.verification_status)
-  const settlementAccounts = accounts.filter(a => a.is_verified || isTrustedUnverified(a))
-  const [selectedAccount, setSelectedAccount] = useState<VerifiedAccount | null>(null)
+  const [selectedAccount, setSelectedAccount] = useState<KnteerAccount | null>(null)
 
   // Add account state
   const [newAccNumber, setNewAccNumber] = useState('')
@@ -90,8 +88,6 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   const [verifyResult, setVerifyResult] = useState<any>(null)
   const [showCelebration, setShowCelebration] = useState(false)
   const [celebrationCountdown, setCelebrationCountdown] = useState(3)
-  const [addingWithoutVerify, setAddingWithoutVerify] = useState(false)
-  const [recheckingId, setRecheckingId] = useState<string | null>(null)
   const [showNoAccountModal, setShowNoAccountModal] = useState(false)
 
   // Settlement step
@@ -157,39 +153,42 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   const fetchAccounts = useCallback(async () => {
     setLoadingAccounts(true)
     try {
-      const res = await apiFetch('/api/settlement-2/accounts')
+      const res = await apiFetch('/api/knteer-payout/accounts')
       const data = await res.json()
       if (data.success) setAccounts(data.accounts || [])
     } catch { /* silent */ }
     finally { setLoadingAccounts(false) }
   }, [])
 
-  const handleVerifyAccount = async () => {
+  const handleAddAccount = async () => {
     if (!newAccNumber || newAccNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
     if (newAccNumber !== newConfirmAcc) return setError('Account numbers do not match')
     if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) return setError('Enter a valid IFSC code')
-    const cleanedName = newBeneName.trim().replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
-    if (cleanedName.length < 3) return setError('Beneficiary name must be at least 3 letters')
-    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
+    const cleanedName = newBeneName.trim().replace(/\s+/g, ' ').trim()
+    if (cleanedName.length < 3) return setError('Account holder name must be at least 3 characters')
+    if (!newContactMobile || !/^[6-9]\d{9}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
     setError(null)
     setVerifying(true)
     setVerifyResult(null)
     try {
-      const res = await apiFetch('/api/settlement-2/accounts', {
+      const res = await apiFetch('/api/knteer-payout/accounts', {
         method: 'POST',
-        body: JSON.stringify({ account_number: newAccNumber, ifsc_code: newIfsc.toUpperCase(), account_holder_name: cleanedName, contact_name: user?.name || '', contact_email: user?.email || '', contact_mobile: newContactMobile }),
+        body: JSON.stringify({
+          account_number: newAccNumber,
+          ifsc_code: newIfsc.toUpperCase(),
+          account_holder_name: cleanedName,
+          mobile: newContactMobile,
+          email: user?.email || '',
+        }),
       })
       const data = await res.json()
-      setVerifyResult(data)
       if (data.success) {
         fetchAccounts()
-        if (data.verified) {
-          setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile('')
-          setShowCelebration(true)
-          setCelebrationCountdown(3)
-        }
+        setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile('')
+        setShowCelebration(true)
+        setCelebrationCountdown(3)
       } else {
-        setError(data.error || 'Verification failed')
+        setError(data.error || 'Failed to register account')
       }
     } catch (err: any) { setError(err.message || 'Network error') }
     finally { setVerifying(false) }
@@ -202,41 +201,9 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     return () => clearTimeout(t)
   }, [showCelebration, celebrationCountdown])
 
-  const handleAddWithoutVerification = async () => {
-    if (!newAccNumber || newAccNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
-    if (newAccNumber !== newConfirmAcc) return setError('Account numbers do not match')
-    if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) return setError('Enter a valid IFSC code')
-    const cleanedName = newBeneName.trim().replace(/[^A-Za-z\s\-]/g, '').replace(/\s+/g, ' ').trim()
-    if (cleanedName.length < 3) return setError('Beneficiary name must be at least 3 letters')
-    if (!newContactMobile || !/^\d{10}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
-    setError(null)
-    setAddingWithoutVerify(true)
-    try {
-      const res = await apiFetch('/api/settlement-2/accounts', {
-        method: 'POST',
-        body: JSON.stringify({ account_number: newAccNumber, ifsc_code: newIfsc.toUpperCase(), account_holder_name: cleanedName, contact_name: user?.name || '', contact_email: user?.email || '', contact_mobile: newContactMobile, skip_verification: true }),
-      })
-      const data = await res.json()
-      if (data.success) { fetchAccounts(); setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile(''); setActiveView('home') }
-      else setError(data.error || 'Failed to add account')
-    } catch (err: any) { setError(err.message || 'Network error') }
-    finally { setAddingWithoutVerify(false) }
-  }
-
-  const handleRecheckVerification = async (accountId: string) => {
-    setRecheckingId(accountId)
-    try {
-      const res = await apiFetch('/api/settlement-2/accounts', { method: 'PATCH', body: JSON.stringify({ account_id: accountId }) })
-      const data = await res.json()
-      if (data.success && data.verified) setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, is_verified: true, verification_status: 'SUCCESS', verified_name: data.account?.verified_name || a.verified_name } : a))
-      else if (data.verification_status) setAccounts(prev => prev.map(a => a.id === accountId ? { ...a, verification_status: data.verification_status } : a))
-    } catch { /* silent */ }
-    finally { setRecheckingId(null) }
-  }
-
   const handleDeleteAccount = async (accountId: string) => {
     try {
-      const res = await apiFetch(`/api/settlement-2/accounts?id=${accountId}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/knteer-payout/accounts?id=${accountId}`, { method: 'DELETE' })
       const data = await res.json()
       if (data.success) setAccounts(prev => prev.filter(a => a.id !== accountId))
     } catch { /* silent */ }
@@ -378,7 +345,7 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   // ── Handle process settlement ───────────────────────────────────────────────
 
   const handleProcessSettlement = () => {
-    if (settlementAccounts.length === 0) {
+    if (accounts.length === 0) {
       setShowNoAccountModal(true)
       return
     }
@@ -392,13 +359,13 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     setError(null)
   }
 
-  const handleSelectAccount = (acct: VerifiedAccount) => {
+  const handleSelectAccount = (acct: KnteerAccount) => {
     setSelectedAccount(acct)
     setAccountNumber(acct.account_number)
     setConfirmAccountNumber(acct.account_number)
     setIfscCode(acct.ifsc_code)
-    setAccountHolderName(acct.verified_name || acct.account_holder_name)
-    setBankName(acct.ifsc_code.substring(0, 4))
+    setAccountHolderName(acct.account_holder_name)
+    setBankName(acct.bank_name || acct.ifsc_code.substring(0, 4))
     setBeneficiaryMobile(senderMobile || '')
     setSettlementStep('enter-details')
   }
@@ -594,14 +561,14 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Add Bank Account</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Verify with penny drop & add to your beneficiary list
+                  Register via Knteer &amp; save to your beneficiary list
                 </p>
                 <div className="mt-4 flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
                     <Sparkles className="w-3 h-3" />
-                    ₹4 + GST
+                    Free
                   </span>
-                  <span className="text-xs text-gray-400">One-time per account</span>
+                  <span className="text-xs text-gray-400">Instant registration</span>
                 </div>
               </div>
             </motion.button>
@@ -623,33 +590,17 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                 {accounts.map(acct => (
                   <div key={acct.id} className="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/30">
                     <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${acct.is_verified ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
-                        <Building2 className={`w-5 h-5 ${acct.is_verified ? 'text-blue-600' : 'text-amber-600'}`} />
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                        <Building2 className="w-5 h-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 dark:text-white text-sm">{acct.verified_name || acct.account_holder_name}</p>
+                        <p className="font-medium text-gray-900 dark:text-white text-sm">{acct.account_holder_name}</p>
                         <p className="text-xs text-gray-500 font-mono">{acct.account_number} | {acct.ifsc_code}</p>
-                        {!acct.is_verified && (
-                          <p className={`text-xs mt-0.5 ${isTrustedUnverified(acct) ? 'text-amber-600' : acct.verification_status === 'PENDING' ? 'text-amber-600' : 'text-red-500'}`}>
-                            {isTrustedUnverified(acct) ? 'Not verified — transfers at your own risk' : acct.verification_status === 'PENDING' ? 'Verification pending — use Re-check' : 'Verification failed — re-check or delete'}
-                          </p>
-                        )}
+                        {acct.bank_name && <p className="text-xs text-gray-400">{acct.bank_name}</p>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {acct.is_verified ? (
-                        <BadgeCheck className="w-4 h-4 text-emerald-500" />
-                      ) : isTrustedUnverified(acct) ? (
-                        <ShieldAlert className="w-4 h-4 text-amber-500" />
-                      ) : (
-                        <>
-                          {acct.verification_status !== 'PENDING' && <XCircle className="w-4 h-4 text-red-500" />}
-                          <button onClick={() => handleRecheckVerification(acct.id)} disabled={recheckingId === acct.id}
-                            className="px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg hover:bg-amber-100 disabled:opacity-50 flex items-center gap-1">
-                            {recheckingId === acct.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Re-check
-                          </button>
-                        </>
-                      )}
+                      <BadgeCheck className="w-4 h-4 text-emerald-500" />
                       <button onClick={() => handleDeleteAccount(acct.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -778,7 +729,7 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
           ) : (
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Add Bank Account</h3>
-              <p className="text-sm text-gray-500 mb-5">Verify with penny drop & add to your beneficiary list</p>
+              <p className="text-sm text-gray-500 mb-5">Register your bank account via Knteer — free, instant</p>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Account Number</label>
@@ -802,27 +753,13 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                 </div>
               </div>
 
-              {verifyResult && !verifyResult.verified && verifyResult.error && (
-                <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300">{verifyResult.error}</div>
-              )}
-              {verifyResult && verifyResult.verified && (
-                <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" /> Account verified: {verifyResult.account?.verified_name}
-                </div>
-              )}
-
-              <div className="mt-6 flex gap-3">
-                <button onClick={handleVerifyAccount} disabled={verifying || addingWithoutVerify}
-                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              <div className="mt-6">
+                <button onClick={handleAddAccount} disabled={verifying}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                   {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-                  {verifying ? 'Verifying...' : 'Verify with Penny Drop (₹4 + GST)'}
+                  {verifying ? 'Registering...' : 'Register Account'}
                 </button>
               </div>
-              <button onClick={handleAddWithoutVerification} disabled={verifying || addingWithoutVerify}
-                className="mt-2 w-full py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                {addingWithoutVerify ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
-                Add without verification (at your risk)
-              </button>
             </div>
           )}
         </motion.div>
@@ -844,32 +781,26 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Select Bank Account</h3>
               <p className="text-sm text-gray-500 mb-5">Choose a verified bank account for settlement</p>
               <div className="space-y-3">
-                {settlementAccounts.map(acct => (
+                {accounts.map(acct => (
                   <button key={acct.id} onClick={() => handleSelectAccount(acct)}
                     className="w-full text-left p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-all flex items-center gap-3 group">
                     <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
                       <Building2 className="w-5 h-5 text-blue-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{acct.verified_name || acct.account_holder_name}</p>
+                      <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{acct.account_holder_name}</p>
                       <p className="text-xs text-gray-500 font-mono">{acct.account_number} | {acct.ifsc_code}</p>
+                      {acct.bank_name && <p className="text-xs text-gray-400">{acct.bank_name}</p>}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {acct.is_verified ? (
-                        <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full"><BadgeCheck className="w-3 h-3" /> Verified</span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full"><ShieldAlert className="w-3 h-3" /> Unverified</span>
-                      )}
+                      <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full">
+                        <BadgeCheck className="w-3 h-3" /> Registered
+                      </span>
                       <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500" />
                     </div>
                   </button>
                 ))}
               </div>
-              {accounts.length > settlementAccounts.length && (
-                <p className="mt-3 text-xs text-gray-400 text-center">
-                  {accounts.length - settlementAccounts.length} account(s) with failed verification hidden
-                </p>
-              )}
             </div>
           )}
 
@@ -893,7 +824,7 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                         <Building2 className="w-5 h-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-sm text-gray-900 dark:text-white">{selectedAccount.verified_name || selectedAccount.account_holder_name}</p>
+                        <p className="font-medium text-sm text-gray-900 dark:text-white">{selectedAccount.account_holder_name}</p>
                         <p className="text-xs text-gray-500 font-mono">{selectedAccount.account_number} | {selectedAccount.ifsc_code}</p>
                       </div>
                     </div>

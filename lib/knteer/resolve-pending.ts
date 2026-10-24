@@ -54,7 +54,7 @@ export async function resolvePendingKnteerPayouts(
 
   const { data: pendingTxs, error } = await supabase
     .from('knteer_payout_transactions')
-    .select('id, retailer_id, user_role, partner_trans_id, knteer_trans_id, amount, charges, actual_wallet_debit, payment_mode, account_number, ifsc_code, account_holder_name, scheme_id, distributor_id, distributor_commission, md_commission, company_earning, status_message, created_at')
+    .select('id, retailer_id, user_role, partner_trans_id, knteer_trans_id, amount, charges, actual_wallet_debit, payment_mode, account_number, ifsc_code, account_holder_name, scheme_id, distributor_id, md_id, distributor_commission, md_commission, company_earning, status_message, created_at')
     .eq('status', 'PENDING')
     .lt('created_at', staleThreshold)
     .order('created_at', { ascending: true })
@@ -198,11 +198,12 @@ async function bookKnteerRevenue(supabase: SupabaseClient, tx: any): Promise<voi
     totalCharge: charges,
     retailer: { id: tx.retailer_id, role: tx.user_role || 'retailer', commission: 0 },
     distributor: { id: tx.distributor_id || null, commission: parseFloat(String(tx.distributor_commission || 0)) },
-    masterDistributor: { id: null },
+    masterDistributor: { id: tx.md_id || null },
     remarksSuffix: `on ₹${tx.amount} knteer payout`,
     auditWriteback: {
       table: 'knteer_payout_transactions',
       txnId: tx.id,
+      retailerCol: 'retailer_commission_earned',
       distributorCol: 'distributor_commission',
       mdCol: 'md_commission',
       companyCol: 'company_earning',

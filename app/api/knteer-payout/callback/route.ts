@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     // ── Look up transaction ───────────────────────────────────────────────────
     const { data: tx, error: txErr } = await supabaseAdmin
       .from('knteer_payout_transactions')
-      .select('id, retailer_id, user_role, partner_trans_id, amount, charges, actual_wallet_debit, status, scheme_id, distributor_id, distributor_commission, md_commission, company_earning')
+      .select('id, retailer_id, user_role, partner_trans_id, amount, charges, actual_wallet_debit, status, scheme_id, distributor_id, md_id, distributor_commission, md_commission, company_earning')
       .eq('partner_trans_id', partnerTransId)
       .maybeSingle()
 
@@ -190,11 +190,12 @@ export async function POST(request: NextRequest) {
           totalCharge: charges,
           retailer: { id: tx.retailer_id, role: tx.user_role || 'retailer', commission: 0 },
           distributor: { id: tx.distributor_id || null, commission: parseFloat(String(tx.distributor_commission || 0)) },
-          masterDistributor: { id: null },
+          masterDistributor: { id: (tx as any).md_id || null },
           remarksSuffix: `on ₹${tx.amount} knteer payout`,
           auditWriteback: {
             table: 'knteer_payout_transactions',
             txnId: tx.id,
+            retailerCol: 'retailer_commission_earned',
             distributorCol: 'distributor_commission',
             mdCol: 'md_commission',
             companyCol: 'company_earning',

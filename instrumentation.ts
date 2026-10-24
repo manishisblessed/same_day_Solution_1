@@ -153,6 +153,22 @@ export async function register() {
     }
 
     try {
+      const { initKnteerPendingCheckCron } = await import('@/lib/cron/knteer-pending-check-cron')
+      await initKnteerPendingCheckCron()
+      console.log('[Instrumentation] Knteer Pending-Check Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Knteer Pending-Check cron:', err)
+    }
+
+    try {
+      const { initKnteerReconciliationCron } = await import('@/lib/cron/knteer-reconciliation-cron')
+      await initKnteerReconciliationCron()
+      console.log('[Instrumentation] Knteer Reconciliation Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Knteer Reconciliation cron:', err)
+    }
+
+    try {
       const { initPosCallbackRetryCron } = await import('@/lib/cron/pos-callback-retry-cron')
       await initPosCallbackRetryCron()
       console.log('[Instrumentation] POS Callback Retry Cron initialized successfully')

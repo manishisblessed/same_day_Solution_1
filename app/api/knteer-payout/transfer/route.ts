@@ -344,6 +344,7 @@ export async function POST(request: NextRequest) {
         scheme_name: resolvedSchemeName,
         resolved_via: resolvedVia,
         distributor_id: distributorId,
+        md_id: mdId,
         distributor_commission: commissionSplit.distributor_commission,
         md_commission: commissionSplit.md_commission,
       })
