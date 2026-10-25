@@ -36,13 +36,16 @@ const BBPS_BANDS: { min: number; max: number }[] = [
 ]
 const PAYOUT_BANDS: { min: number; max: number }[] = [
   { min: 100, max: 1000 },
-  { min: 1001, max: 25000 },
+  { min: 1001, max: 10000 },
+  { min: 10001, max: 25000 },
   { min: 25001, max: 50000 },
   { min: 50001, max: 100000 },
+  { min: 100001, max: 200000 },
 ]
 const SETTLEMENT_1_BANDS: { min: number; max: number }[] = [
   { min: 100, max: 1000 },
-  { min: 1001, max: 25000 },
+  { min: 1001, max: 10000 },
+  { min: 10001, max: 25000 },
   { min: 25001, max: 50000 },
   { min: 50001, max: 100000 },
   { min: 100001, max: 200000 },

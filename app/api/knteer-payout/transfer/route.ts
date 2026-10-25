@@ -376,12 +376,19 @@ export async function POST(request: NextRequest) {
       }
       transferLedgerId = data
     } else {
-      const { data, error } = await (supabaseAdmin as any).rpc('debit_wallet_bbps', {
-        p_retailer_id: user.partner_id,
-        p_transaction_id: txRecord.id,
-        p_amount: totalRequired,
-        p_description: debitDesc,
+      const { data, error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+        p_user_id: user.partner_id,
+        p_user_role: user.role,
+        p_wallet_type: 'primary',
+        p_fund_category: 'service',
+        p_service_type: 'knteer_payout',
+        p_tx_type: 'KNTEER_PAYOUT_DEBIT',
+        p_credit: 0,
+        p_debit: totalRequired,
         p_reference_id: `${partnerTransId}_TRANSFER`,
+        p_transaction_id: txRecord.id,
+        p_status: 'completed',
+        p_remarks: debitDesc,
       })
       if (error) {
         await supabaseAdmin.from('knteer_payout_transactions').update({ status: 'FAILED', status_message: 'Wallet debit failed' }).eq('id', txRecord.id)

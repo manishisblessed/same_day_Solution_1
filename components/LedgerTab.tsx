@@ -127,6 +127,8 @@ export default function LedgerTab({ user }: LedgerTabProps) {
       'POS_CREDIT': { label: 'POS Transaction', icon: CreditCard, color: 'text-green-600 dark:text-green-400' },
       'BBPS_DEBIT': { label: 'BBPS Payment', icon: Receipt, color: 'text-red-600 dark:text-red-400' },
       'BBPS_REFUND': { label: 'BBPS Refund', icon: Receipt, color: 'text-green-600 dark:text-green-400' },
+      'KNTEER_PAYOUT_DEBIT': { label: 'Settlement-1 Transfer', icon: Receipt, color: 'text-red-600 dark:text-red-400' },
+      'KNTEER_PAYOUT_REFUND': { label: 'Settlement-1 Refund', icon: Receipt, color: 'text-green-600 dark:text-green-400' },
       'PAYOUT': { label: 'Settlement', icon: Banknote, color: 'text-red-600 dark:text-red-400' },
       'SETTLEMENT_CREDIT': { label: 'Settlement Received', icon: Banknote, color: 'text-green-600 dark:text-green-400' },
       'COMMISSION': { label: 'Commission', icon: TrendingUp, color: 'text-green-600 dark:text-green-400' },
@@ -152,6 +154,14 @@ export default function LedgerTab({ user }: LedgerTabProps) {
       label: type.replace(/_/g, ' '),
       icon: isCredit ? ArrowDownCircle : ArrowUpCircle,
       color: isCredit ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+    }
+
+    // Override: old Knteer entries were stored as BBPS_DEBIT with service_type knteer_payout
+    if (type === 'BBPS_DEBIT' && service === 'knteer_payout') {
+      return { label: 'Settlement-1 Transfer', icon: Receipt, color: 'text-red-600 dark:text-red-400' }
+    }
+    if (type === 'BBPS_REFUND' && service === 'knteer_payout') {
+      return { label: 'Settlement-1 Refund', icon: Receipt, color: 'text-green-600 dark:text-green-400' }
     }
 
     return typeMap[type] || defaultInfo

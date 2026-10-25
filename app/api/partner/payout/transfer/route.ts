@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { initiateTransfer, generateClientRefId, getPayoutBalance } from '@/services/payout'
-import { getTransferLimits } from '@/services/payout/config'
+import { initiateKnteerTransfer, generateRefId, getKnteerBalance } from '@/services/knteer-payout'
+import { refundKnteerPayout } from '@/lib/knteer/refund'
 import {
   reserveIdempotencyKey,
   finalizeIdempotencyKey,
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
-import { sendPayoutCallback } from '@/lib/payout-callback'
 import { resolvePartnerPayoutCharge, partnerHasCoveringPayoutSlab } from '@/lib/payout-charge'
 import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
@@ -16,8 +15,6 @@ import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB }
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
-
-const GST_PERCENT = 18
 
 function getSupabase() {
   return createClient(
@@ -27,8 +24,21 @@ function getSupabase() {
   )
 }
 
+/**
+ * POST /api/partner/payout/transfer
+ *
+ * Initiate a bank account transfer (payout) via Knteer Solution.
+ * Debits the partner's wallet and transfers to the specified bank account.
+ *
+ * Requires: x-api-key, x-signature, x-timestamp headers.
+ * Feature gate: Settlement / Payout must be enabled for this partner by admin.
+ */
 export async function POST(request: NextRequest) {
+  const idemKey = getIdempotencyKeyFromHeaders(request.headers)
+  const IDEM_SCOPE = 'partner_knteer_payout'
+
   try {
+    // ── HMAC Authentication ────────────────────────────────────────────────
     let authResult
     try {
       authResult = await authenticatePartner(request)
@@ -41,6 +51,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { partner } = authResult
+
+    // ── Feature gate: Settlement / Payout must be enabled ─────────────────
     const payoutAccess = partnerCanUseApi(partner, 'payout')
     if (!payoutAccess.allowed) {
       return NextResponse.json(
@@ -49,11 +61,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Idempotency key support
-    const idempotencyKey = getIdempotencyKeyFromHeaders(request.headers)
+    // ── Idempotency ────────────────────────────────────────────────────────
     const idempResult = await reserveIdempotencyKey({
-      scope: `partner_payout:${partner.id}`,
-      key: idempotencyKey,
+      scope: `${IDEM_SCOPE}:${partner.id}`,
+      key: idemKey,
       userId: partner.id,
     })
     if (!idempResult.fresh) {
@@ -66,6 +77,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── Parse + Validate Body ──────────────────────────────────────────────
     let body: any
     try {
       body = await request.json()
@@ -77,46 +89,35 @@ export async function POST(request: NextRequest) {
     }
 
     const {
-      accountNumber, ifscCode, accountHolderName, amount,
-      transferMode, bankId, bankName, beneficiaryMobile, senderName,
-      senderMobile, senderEmail, remarks,
+      accountNumber, ifscCode, accountHolderName, bankName,
+      email, mobile, amount, paymentMode = 'IMPS', remarks,
     } = body
 
-    if (!accountNumber || !ifscCode || !accountHolderName || !amount || !transferMode) {
+    if (!accountNumber || !ifscCode || !accountHolderName || !bankName || !amount) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'accountNumber, ifscCode, accountHolderName, amount, transferMode are required' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'accountNumber, ifscCode, accountHolderName, bankName and amount are required' } },
         { status: 400 }
       )
     }
-    if (bankId === undefined || bankId === null || !bankName) {
+    if (!mobile) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'bankId and bankName are required' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'mobile (beneficiary mobile number) is required' } },
         { status: 400 }
       )
     }
-    if (!beneficiaryMobile || !senderName || !senderMobile) {
+
+    const validModes = ['IMPS', 'NEFT']
+    if (!validModes.includes(paymentMode)) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'beneficiaryMobile, senderName, senderMobile are required' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'paymentMode must be IMPS or NEFT' } },
         { status: 400 }
       )
     }
 
     const mobileRegex = /^[6-9]\d{9}$/
-    if (!mobileRegex.test(beneficiaryMobile)) {
+    if (!mobileRegex.test(String(mobile))) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid beneficiary mobile number' } },
-        { status: 400 }
-      )
-    }
-    if (!mobileRegex.test(senderMobile)) {
-      return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid sender mobile number' } },
-        { status: 400 }
-      )
-    }
-    if (transferMode !== 'IMPS') {
-      return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'transferMode must be IMPS' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Invalid mobile number — must be a 10-digit Indian mobile number' } },
         { status: 400 }
       )
     }
@@ -128,273 +129,285 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    const limits = getTransferLimits()
-    if (amountNum < limits.min) {
+    if (amountNum < 100) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: `Minimum transfer: ₹${limits.min}` } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Minimum transfer amount is ₹100' } },
         { status: 400 }
       )
     }
-    if (amountNum > limits.max) {
+    if (amountNum > 200000) {
       return NextResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: `Maximum transfer: ₹${limits.max}` } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Maximum transfer amount is ₹2,00,000' } },
         { status: 400 }
       )
     }
 
     const supabase = getSupabase()
 
-    // FINANCIAL SAFETY: payout must be priced by an assigned scheme that has a
-    // covering payout slab for this amount + mode. No fixed/₹0 fallback — block if
-    // there is no scheme or no valid slab so nothing transfers mispriced.
-    const { baseCharge, schemeId } = await resolvePartnerPayoutCharge(supabase, partner.id, amountNum, transferMode)
+    // ── Scheme + charges ───────────────────────────────────────────────────
+    const { baseCharge, schemeId, schemeName } = await resolvePartnerPayoutCharge(supabase, partner.id, amountNum, paymentMode)
     if (!schemeId) {
-      console.error(`[Partner Payout Transfer] BLOCKED: No scheme assigned for partner=${partner.id} — refusing transfer`)
+      console.error(`[Partner Payout/Knteer] BLOCKED: No scheme for partner=${partner.id}`)
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
         { success: false, error: { code: SCHEME_NOT_ASSIGNED.code, message: SCHEME_NOT_ASSIGNED.error } },
         { status: SCHEME_NOT_ASSIGNED_STATUS }
       )
     }
-    const payoutSlabOk = await partnerHasCoveringPayoutSlab(supabase, partner.id, amountNum, transferMode)
-    if (!payoutSlabOk) {
-      console.error(`[Partner Payout Transfer] BLOCKED: No valid payout slab for partner=${partner.id} amount=${amountNum} mode=${transferMode}`)
+
+    const slabOk = await partnerHasCoveringPayoutSlab(supabase, partner.id, amountNum, paymentMode)
+    if (!slabOk) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
         { success: false, error: { code: SCHEME_NO_VALID_SLAB.code, message: SCHEME_NO_VALID_SLAB.error } },
         { status: SCHEME_NOT_ASSIGNED_STATUS }
       )
     }
 
-    const gstAmount = Math.round((baseCharge * GST_PERCENT) / 100 * 100) / 100
-    const charges = Math.round((baseCharge + gstAmount) * 100) / 100
-    const totalAmount = Math.round((amountNum + charges) * 100) / 100
+    const charges = baseCharge
+    const totalRequired = amountNum + charges
 
-    // Check partner wallet balance
-    const { data: walletBalance, error: balErr } = await supabase.rpc('get_partner_wallet_balance', {
-      p_partner_id: partner.id
+    // ── Partner wallet balance check ───────────────────────────────────────
+    const { data: walletBalance, error: balErr } = await (supabase as any).rpc('get_partner_wallet_balance', {
+      p_partner_id: partner.id,
     })
-    if (balErr) {
-      console.error('[Partner Payout Transfer] Balance check error:', balErr)
+    if (balErr || walletBalance === null) {
       return NextResponse.json(
         { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to check wallet balance' } },
         { status: 500 }
       )
     }
+    if ((walletBalance || 0) < totalRequired) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} + ₹${charges} charges). Available: ₹${walletBalance.toFixed(2)}`,
+        },
+        wallet_balance: walletBalance,
+        required: totalRequired,
+        charges,
+      }, { status: 400 })
+    }
 
-    // Check if wallet is frozen
+    // ── Check wallet frozen ────────────────────────────────────────────────
     const { data: walletInfo } = await supabase
       .from('partner_wallets')
       .select('is_frozen, freeze_reason')
       .eq('partner_id', partner.id)
       .maybeSingle()
-
     if (walletInfo?.is_frozen) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
-        { success: false, error: { code: 'WALLET_FROZEN', message: `Partner wallet is frozen: ${walletInfo.freeze_reason || 'Contact admin'}` } },
+        { success: false, error: { code: 'WALLET_FROZEN', message: `Wallet is frozen: ${walletInfo.freeze_reason || 'Contact admin'}` } },
         { status: 403 }
       )
     }
 
-    if ((walletBalance || 0) < totalAmount) {
+    // ── Provider balance check ─────────────────────────────────────────────
+    const providerBal = await getKnteerBalance()
+    if (!providerBal.success || (providerBal.usable_balance ?? 0) < amountNum) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient partner wallet balance' },
-          wallet_balance: walletBalance || 0,
-          amount: amountNum,
-          charges,
-          total_required: totalAmount
-        },
-        { status: 400 }
-      )
-    }
-
-    // Check provider balance
-    const providerBalance = await getPayoutBalance()
-    if (!providerBalance.success || (providerBalance.available_balance || 0) < amountNum) {
-      return NextResponse.json(
-        { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Payout service temporarily unavailable' } },
+        { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Payout service temporarily unavailable. Please try again later.' } },
         { status: 503 }
       )
     }
 
-    // Duplicate prevention — same account + same amount within 1 min
-    // success/processing txns: block for full 60s (prevents double credit/debit)
-    // pending txns: block only for 15s (allows retry after stale timeouts)
-    const oneMinAgo = new Date(Date.now() - 60 * 1000).toISOString()
-    const fifteenSecAgo = new Date(Date.now() - 15 * 1000).toISOString()
-
-    const { data: recentCompletedTx } = await supabase
-      .from('payout_transactions')
-      .select('id, status, created_at, amount')
-      .eq('partner_id', partner.id)
+    // ── Duplicate prevention — same account + amount within 60s ───────────
+    const cooldownCutoff = new Date(Date.now() - 60 * 1000).toISOString()
+    const { data: recentTx } = await supabase
+      .from('knteer_payout_transactions')
+      .select('id, status, created_at')
+      .eq('retailer_id', partner.id)
       .eq('account_number', accountNumber)
-      .eq('amount', amountNum)
-      .gte('created_at', oneMinAgo)
-      .in('status', ['processing', 'success'])
+      .gte('created_at', cooldownCutoff)
+      .eq('status', 'SUCCESS')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    const { data: recentPendingTx } = await supabase
-      .from('payout_transactions')
-      .select('id, status, created_at, amount')
-      .eq('partner_id', partner.id)
-      .eq('account_number', accountNumber)
-      .eq('amount', amountNum)
-      .gte('created_at', fifteenSecAgo)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const recentTx = recentCompletedTx || recentPendingTx
     if (recentTx) {
-      const secAgo = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
-      const waitSec = recentTx.status === 'pending' ? 15 - secAgo : 60 - secAgo
-      return NextResponse.json(
-        { success: false, error: { code: 'DUPLICATE', message: `Identical transaction (same account + amount) initiated ${secAgo}s ago. Wait ${Math.max(waitSec, 1)}s.` }, duplicate_prevention: true, wait_seconds: Math.max(waitSec, 1) },
-        { status: 429 }
-      )
+      const secsAgo = Math.round((Date.now() - new Date(recentTx.created_at).getTime()) / 1000)
+      const remaining = Math.max(1, 60 - secsAgo)
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
+      return NextResponse.json({
+        success: false,
+        error: { code: 'DUPLICATE', message: `Please wait ${remaining} seconds before making another transfer to this account.` },
+        wait_seconds: remaining,
+      }, { status: 429 })
     }
 
-    const clientRefId = generateClientRefId(partner.id)
+    // ── Generate unique partnerTransId ─────────────────────────────────────
+    const partnerTransId = generateRefId()
 
-    // Create transaction record (partner_id instead of retailer_id)
-    const { data: payoutTx, error: txErr } = await supabase
-      .from('payout_transactions')
+    // ── Create DB record ───────────────────────────────────────────────────
+    const { data: txRecord, error: txError } = await supabase
+      .from('knteer_payout_transactions')
       .insert({
-        partner_id: partner.id,
-        retailer_id: null,
+        retailer_id: partner.id,
+        user_role: 'partner',
         account_number: accountNumber,
         ifsc_code: ifscCode,
         account_holder_name: accountHolderName,
         bank_name: bankName,
+        email: email || '',
+        mobile: String(mobile),
         amount: amountNum,
         charges,
-        transfer_mode: transferMode,
-        client_ref_id: clientRefId,
-        status: 'pending',
+        total_debit: totalRequired,
+        payment_mode: paymentMode,
+        partner_trans_id: partnerTransId,
+        status: 'PENDING',
         remarks: remarks || null,
-        wallet_debited: false,
+        narration: remarks || `Partner payout to ${accountHolderName}`,
+        scheme_id: schemeId,
+        scheme_name: schemeName,
+        distributor_id: null,
+        md_id: null,
       })
       .select()
       .single()
 
-    if (txErr || !payoutTx) {
-      console.error('[Partner Payout Transfer] Insert error:', txErr)
+    if (txError || !txRecord) {
+      console.error('[Partner Payout/Knteer] DB insert failed:', txError)
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
         { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create transaction record' } },
         { status: 500 }
       )
     }
 
-    // Debit partner wallet
-    const { data: ledgerId, error: ledgerErr } = await supabase.rpc('debit_partner_wallet', {
+    // ── Debit partner wallet ───────────────────────────────────────────────
+    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''} to ${accountHolderName} (${accountNumber.slice(-4)})`
+    const { error: debitError } = await (supabase as any).rpc('debit_partner_wallet', {
       p_partner_id: partner.id,
-      p_amount: totalAmount,
-      p_payout_transaction_id: payoutTx.id,
-      p_description: charges > 0
-        ? `Payout ₹${amountNum} + charge ₹${baseCharge} + GST ₹${gstAmount} = ₹${totalAmount} to ${accountHolderName} via ${transferMode}`
-        : `Payout to ${accountHolderName} via ${transferMode}`,
-      p_reference_id: clientRefId,
-      p_service_type: 'payout',
+      p_amount: totalRequired,
+      p_description: debitDesc,
+      p_reference_id: `${partnerTransId}_TRANSFER`,
+      p_service_type: 'knteer_payout',
     })
 
-    if (ledgerErr) {
-      console.error('[Partner Payout Transfer] Wallet debit error:', ledgerErr)
-      await supabase.from('payout_transactions').update({ status: 'failed', failure_reason: 'Wallet debit failed' }).eq('id', payoutTx.id)
+    if (debitError) {
+      await supabase.from('knteer_payout_transactions').update({ status: 'FAILED', status_message: 'Wallet debit failed' }).eq('id', txRecord.id)
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
       return NextResponse.json(
-        { success: false, error: { code: 'INTERNAL_ERROR', message: ledgerErr.message || 'Failed to debit wallet' } },
+        { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to debit wallet' } },
         { status: 500 }
       )
     }
 
-    await supabase.from('payout_transactions').update({ wallet_debited: true, wallet_debit_id: ledgerId, status: 'processing' }).eq('id', payoutTx.id)
+    await supabase
+      .from('knteer_payout_transactions')
+      .update({ actual_wallet_debit: totalRequired, wallet_debited: true })
+      .eq('id', txRecord.id)
 
-    // Initiate payout transfer
-    const transferResult = await initiateTransfer({
-      accountNumber, ifscCode, accountHolderName, amount: amountNum,
-      transferMode: transferMode as 'IMPS',
-      bankId: parseInt(bankId), bankName, beneficiaryMobile, senderName, senderMobile,
-      senderEmail: senderEmail || '', remarks: remarks || `Payout - ${clientRefId}`, clientRefId,
+    // ── Initiate transfer via Knteer ───────────────────────────────────────
+    const transferResult = await initiateKnteerTransfer({
+      supabase,
+      retailerId: partner.id,
+      partnerTransId,
+      beneDetails: {
+        email: email || `${partner.id}@knteer.payout`,
+        mobile: String(mobile),
+        beneName: accountHolderName,
+        accountNumber,
+        bankName,
+        ifsc: ifscCode,
+      },
+      amount: amountNum,
+      paymentMode: paymentMode as 'IMPS' | 'NEFT',
+      remark: remarks || `Payout ${partnerTransId}`,
     })
 
-    // Handle timeout — keep as processing, don't refund
-    if ((transferResult as any).is_timeout) {
-      await supabase.from('payout_transactions').update({ status: 'processing', updated_at: new Date().toISOString() }).eq('id', payoutTx.id)
-      const timeoutResponse = {
-        success: true, message: 'Transfer initiated. Processing may take a few minutes.',
-        transaction_id: payoutTx.id, client_ref_id: clientRefId, status: 'PROCESSING',
-        amount: amountNum, charges, total_debited: totalAmount,
-        account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
-        account_holder_name: accountHolderName, bank_name: bankName, transfer_mode: transferMode,
+    const isSuccess = transferResult.status === 'success'
+    const isPending = transferResult.is_indeterminate || transferResult.status === 'pending'
+    const isDefinitiveFail = !isSuccess && !isPending
+
+    // ── Handle definitive failure — refund wallet ──────────────────────────
+    if (isDefinitiveFail) {
+      const refund = await refundKnteerPayout(supabase, {
+        ...txRecord,
+        user_role: 'partner',
+        actual_wallet_debit: totalRequired,
+        partner_trans_id: partnerTransId,
+      }, { skipProviderCheck: true })
+      if (refund.critical) {
+        console.error('[Partner Payout/Knteer] CRITICAL refund failed:', { txId: txRecord.id, error: refund.error })
       }
-      finalizeIdempotencyKey({ scope: `partner_payout:${partner.id}`, key: idempotencyKey || '', status: 'completed', response: timeoutResponse }).catch(() => {})
-      return NextResponse.json(timeoutResponse)
+
+      // Book revenue only on success (not failure) — no commission on failed txns
     }
 
-    if (!transferResult.success) {
-      await supabase.rpc('refund_partner_wallet', {
-        p_partner_id: partner.id,
-        p_amount: totalAmount,
-        p_payout_transaction_id: payoutTx.id,
-        p_description: `Payout failed - Refund: ${transferResult.error}`,
-        p_reference_id: `REFUND_${clientRefId}`,
-        p_service_type: 'payout',
+    // ── Update DB ──────────────────────────────────────────────────────────
+    await supabase
+      .from('knteer_payout_transactions')
+      .update({
+        status: isSuccess ? 'SUCCESS' : isDefinitiveFail ? 'FAILED' : 'PENDING',
+        status_id: transferResult.status_id || null,
+        knteer_trans_id: transferResult.knteer_trans_id || null,
+        utr: transferResult.utr || null,
+        status_message: isSuccess
+          ? `SUCCESS — UTR ${transferResult.utr}`
+          : isPending
+            ? 'Processing — awaiting provider confirmation'
+            : transferResult.error || 'Transfer failed',
+        completed_at: isSuccess ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
       })
-      await supabase.from('payout_transactions').update({ status: 'failed', failure_reason: transferResult.error, updated_at: new Date().toISOString() }).eq('id', payoutTx.id)
-      const failResponse = { success: false, error: { code: 'TRANSFER_FAILED', message: transferResult.error || 'Transfer failed' }, refunded: true }
-      finalizeIdempotencyKey({ scope: `partner_payout:${partner.id}`, key: idempotencyKey || '', status: 'failed', response: failResponse }).catch(() => {})
-      sendPayoutCallback(partner.id, { ...payoutTx, status: 'failed', failure_reason: transferResult.error }).catch(() => {})
-      return NextResponse.json(failResponse, { status: 400 })
+      .eq('id', txRecord.id)
+
+    // ── Book partner revenue on success ────────────────────────────────────
+    if (isSuccess && charges > 0) {
+      bookPartnerRevenue({
+        supabase,
+        service: 'payout',
+        partnerId: partner.id,
+        refKey: partnerTransId,
+        baseCharge: charges,
+        amount: amountNum,
+        mode: paymentMode,
+        transactionUuid: txRecord.id,
+        remarksSuffix: `on ₹${amountNum} partner payout`,
+      }).catch((e) => console.error('[Partner Payout/Knteer] Revenue booking failed:', e))
     }
 
-    const finalStatus = transferResult.status || 'processing'
-    await supabase.from('payout_transactions').update({ transaction_id: transferResult.transaction_id, status: finalStatus, updated_at: new Date().toISOString() }).eq('id', payoutTx.id)
-
-    const successResponse = {
+    const responseBody = {
       success: true,
-      message: transferResult.remark || 'Transfer initiated successfully',
-      transaction_id: payoutTx.id,
-      provider_txn_id: transferResult.transaction_id,
-      client_ref_id: transferResult.client_ref_id || clientRefId,
-      status: finalStatus.toUpperCase(),
-      amount: amountNum, charges, total_debited: totalAmount,
+      message: isSuccess
+        ? 'Transfer successful'
+        : isDefinitiveFail
+          ? 'Transfer failed'
+          : 'Transfer initiated. Processing may take a few minutes.',
+      transaction_id: txRecord.id,
+      partner_trans_id: partnerTransId,
+      knteer_trans_id: transferResult.knteer_trans_id || null,
+      utr: transferResult.utr || null,
+      status: isSuccess ? 'SUCCESS' : isDefinitiveFail ? 'FAILED' : 'PENDING',
+      amount: amountNum,
+      charges,
+      total_debited: totalRequired,
+      payment_mode: paymentMode,
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
-      account_holder_name: accountHolderName, bank_name: bankName, transfer_mode: transferMode,
+      account_holder_name: accountHolderName,
+      bank_name: bankName,
+      ...(schemeName ? { scheme_name: schemeName } : {}),
     }
-    finalizeIdempotencyKey({ scope: `partner_payout:${partner.id}`, key: idempotencyKey || '', status: 'completed', response: successResponse }).catch(() => {})
-    if (finalStatus === 'success') {
-      // Book company revenue via the CHARGE MODEL so the live central vendor cost
-      // is deducted (revenue = charge − ex-GST vendor cost). Partners have no
-      // downstream retailer/distributor, so md = dt = rt = full charge (zero
-      // downline margin). `company_cost` is resolved LIVE from the central PAYOUT
-      // vendor card via `reverify`; it stays 0 (full charge → revenue, legacy
-      // behaviour) when no central rate is configured.
-      if (baseCharge > 0) {
-        try {
-          const commResult = await bookPartnerRevenue({
-            supabase,
-            service: 'payout',
-            partnerId: partner.id,
-            refKey: clientRefId,
-            baseCharge,
-            amount: amountNum,
-            mode: transferMode,
-            transactionUuid: payoutTx.id,
-            remarksSuffix: `on ₹${amountNum} partner payout`,
-          })
-          if (commResult.errors.length) console.error('[Partner Payout Transfer] Commission errors:', commResult.errors)
-        } catch (commErr) {
-          console.error('[Partner Payout Transfer] Revenue booking failed:', commErr)
-        }
-      }
-      sendPayoutCallback(partner.id, { ...payoutTx, status: finalStatus, transaction_id: transferResult.transaction_id }).catch(() => {})
+
+    if (idemKey) {
+      await finalizeIdempotencyKey({
+        scope: `${IDEM_SCOPE}:${partner.id}`,
+        key: idemKey,
+        status: isDefinitiveFail ? 'failed' : 'completed',
+        response: isDefinitiveFail ? undefined : responseBody,
+      })
     }
-    return NextResponse.json(successResponse)
-  } catch (error: any) {
-    console.error('[Partner Payout Transfer] Error:', error)
+
+    return NextResponse.json(responseBody, { status: isDefinitiveFail ? 400 : 200 })
+  } catch (err: any) {
+    console.error('[Partner Payout/Knteer] Unhandled error:', err)
+    if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:unknown`, key: idemKey, status: 'failed' }).catch(() => {})
     return NextResponse.json(
       { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 }
