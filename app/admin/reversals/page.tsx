@@ -128,6 +128,17 @@ export default function AdminCapabilities() {
   // Layout
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // Tab
+  const [activeTab, setActiveTab] = useState<'shadval' | 'knteer'>('shadval')
+
+  // Knteer tab state
+  const [knteerRows, setKnteerRows] = useState<any[]>([])
+  const [knteerStats, setKnteerStats] = useState<SearchStats | null>(null)
+  const [knteerSearching, setKnteerSearching] = useState(false)
+  const [knteerRefunding, setKnteerRefunding] = useState<string | null>(null)
+  const [knteerProviderStatus, setKnteerProviderStatus] = useState<Record<string, any>>({})
+  const [knteerCheckingRow, setKnteerCheckingRow] = useState<string | null>(null)
+
   // Filters
   // Default to today so the page auto-searches a small, fast window on open.
   // Users widen the range on demand via the date pickers / preset buttons.
@@ -210,6 +221,73 @@ export default function AdminCapabilities() {
     if (user && (user.role === 'admin' || (user as any).role === 'finance_executive')) runSearch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
+
+  const runKnteerSearch = useCallback(async () => {
+    setKnteerSearching(true)
+    try {
+      const params = new URLSearchParams({ start: startDate, end: endDate, status: statusFilter, search: searchText.trim(), limit: '500' })
+      const res = await apiFetch(`/api/admin/reversal/knteer-search?${params.toString()}`)
+      const data = await res.json()
+      if (data.success) {
+        setKnteerRows(data.transactions || [])
+        setKnteerStats(data.stats || null)
+        if ((data.transactions || []).length === 0) showToast('No Knteer transactions found', 'info')
+      } else {
+        showToast(data.error || 'Knteer search failed', 'error')
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to search Knteer transactions', 'error')
+    } finally {
+      setKnteerSearching(false)
+    }
+  }, [startDate, endDate, statusFilter, searchText, showToast])
+
+  const handleKnteerCheckStatus = useCallback(async (partnerTransId: string) => {
+    setKnteerCheckingRow(partnerTransId)
+    try {
+      const res = await apiFetch(`/api/admin/reversal/knteer-status?partner_trans_id=${encodeURIComponent(partnerTransId)}`)
+      const data = await res.json()
+      if (data.success) {
+        setKnteerProviderStatus(prev => ({ ...prev, [partnerTransId]: data.provider }))
+      } else {
+        showToast(data.error || 'Status check failed', 'error')
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Status check failed', 'error')
+    } finally {
+      setKnteerCheckingRow(null)
+    }
+  }, [showToast])
+
+  const handleKnteerRefund = useCallback(async (txId: string, skipProviderCheck = false) => {
+    setKnteerRefunding(txId)
+    try {
+      const res = await apiFetch('/api/admin/reversal/knteer-refund', {
+        method: 'POST',
+        body: JSON.stringify({ transaction_id: txId, skip_provider_check: skipProviderCheck }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const r = data.refund
+        if (r.blocked_provider_success) {
+          showToast(`⚠️ BLOCKED — Knteer shows SUCCESS with UTR ${r.provider_utr}. Do NOT refund.`, 'error')
+        } else if (r.already_refunded) {
+          showToast('Already refunded — no action taken', 'info')
+        } else if (r.refunded) {
+          showToast('✅ Refunded + commission reversed', 'success')
+          runKnteerSearch()
+        } else if (r.critical) {
+          showToast(`CRITICAL: ${r.error}`, 'error')
+        }
+      } else {
+        showToast(data.error || 'Refund failed', 'error')
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Refund failed', 'error')
+    } finally {
+      setKnteerRefunding(null)
+    }
+  }, [runKnteerSearch, showToast])
 
   const preset = (days: number) => {
     setStartDate(toYMD(new Date(Date.now() - days * 864e5)))
@@ -362,6 +440,17 @@ export default function AdminCapabilities() {
               <RotateCcw className="w-7 h-7 text-blue-600" /> Reversals &amp; Refunds
             </h1>
             <p className="text-gray-600">Find, verify and refund stuck payout / settlement transactions — single or bulk.</p>
+            {/* Tab switcher */}
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => setActiveTab('shadval')}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${activeTab === 'shadval' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
+                Settlement-2 (Shadval)
+              </button>
+              <button onClick={() => { setActiveTab('knteer'); if (knteerRows.length === 0) runKnteerSearch() }}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${activeTab === 'knteer' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'}`}>
+                Reversals_KNTEER
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -382,6 +471,119 @@ export default function AdminCapabilities() {
             </button>
           </div>
         </div>
+
+        {/* ══ KNTEER TAB ══════════════════════════════════════════════════════ */}
+        <div className={activeTab !== 'knteer' ? 'hidden' : ''}>
+            {/* Knteer filter bar */}
+            <div className="bg-white rounded-lg shadow p-4 mb-6">
+              <div className="flex flex-wrap items-end gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="px-3 py-2 border rounded-lg text-sm">
+                    <option value="REFUNDABLE">Refundable (Pending + Failed)</option>
+                    <option value="ALL">All</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="FAILED">Failed</option>
+                    <option value="SUCCESS">Success</option>
+                  </select>
+                </div>
+                <div className="flex-1 min-w-40">
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Search (Retailer ID / Ref / Account / UTR)</label>
+                  <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && runKnteerSearch()}
+                    placeholder="APITXN... / RET... / account..." className="w-full px-3 py-2 border rounded-lg text-sm" />
+                </div>
+                <button onClick={runKnteerSearch} disabled={knteerSearching}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                  {knteerSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Search
+                </button>
+              </div>
+            </div>
+
+            {/* Knteer stats */}
+            {knteerStats && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                {[
+                  { label: 'Total', value: knteerStats.total, color: 'gray' },
+                  { label: 'Pending', value: knteerStats.pending, color: 'amber' },
+                  { label: 'Failed', value: knteerStats.failed, color: 'red' },
+                  { label: 'Success', value: knteerStats.success, color: 'green' },
+                  { label: 'Already Refunded', value: knteerStats.already_refunded, color: 'blue' },
+                  { label: 'Refundable ₹', value: fmtINR(knteerStats.refundable_amount), color: 'emerald', raw: true },
+                ].map(s => (
+                  <div key={s.label} className="bg-white rounded-lg shadow p-4 text-center">
+                    <p className="text-xs text-gray-500 mb-1">{s.label}</p>
+                    <p className={`text-xl font-bold text-${s.color}-600`}>{s.raw ? s.value : s.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Knteer rows */}
+            <div className="space-y-3">
+              {knteerRows.length === 0 && !knteerSearching && (
+                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">No transactions found</div>
+              )}
+              {knteerRows.map(row => {
+                const ps = knteerProviderStatus[row.partner_trans_id]
+                const isRefunding = knteerRefunding === row.id
+                const isChecking = knteerCheckingRow === row.partner_trans_id
+                return (
+                  <div key={row.id} className="bg-white rounded-lg shadow p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[row.status] || 'bg-gray-100 text-gray-600'}`}>{row.status}</span>
+                          {row.is_refunded && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Refunded</span>}
+                          {row.refundable && !row.is_refunded && <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">Refundable</span>}
+                        </div>
+                        <p className="text-sm font-semibold text-gray-900 mt-1">{row.account_holder_name} — {row.account_number} ({row.ifsc_code})</p>
+                        <p className="text-xs text-gray-500">Retailer: {row.retailer_id} · Ref: {row.partner_trans_id} · Knteer: {row.knteer_trans_id || '—'}</p>
+                        <p className="text-xs text-gray-400">{fmtDate(row.created_at)} · {fmtINR(row.actual_wallet_debit || row.total_debit)} deducted</p>
+                        {row.status_message && <p className="text-xs text-amber-700 mt-0.5">{row.status_message}</p>}
+                        {row.failure_reason && <p className="text-xs text-red-600 mt-0.5">{row.failure_reason}</p>}
+                        {ps && (
+                          <p className={`text-xs mt-1 font-medium ${ps.status === 'success' ? 'text-green-600' : ps.status === 'failed' ? 'text-red-600' : 'text-amber-600'}`}>
+                            Provider: {ps.status?.toUpperCase()} {ps.utr ? `· UTR ${ps.utr}` : ''} {ps.error ? `(${ps.error})` : ''}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={() => handleKnteerCheckStatus(row.partner_trans_id)} disabled={isChecking}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                          {isChecking ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />} Check
+                        </button>
+                        {row.refundable && !row.is_refunded && (
+                          <button onClick={() => handleKnteerRefund(row.id)} disabled={isRefunding}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50">
+                            {isRefunding ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Refund
+                          </button>
+                        )}
+                        {row.status === 'PENDING' && (
+                          <button onClick={() => handleKnteerRefund(row.id, true)} disabled={isRefunding}
+                            title="Skip provider check — use if Knteer says Record Not Found after hours"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 disabled:opacity-50">
+                            {isRefunding ? <RefreshCw className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />} Force Refund
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+        {/* ══ SHADVAL TAB ════════════════════════════════════════════════════ */}
+        <div className={activeTab !== 'shadval' ? 'hidden' : ''}>
 
         {/* Filter bar */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -661,6 +863,7 @@ export default function AdminCapabilities() {
         </div>
         </div>
       </div>
+        </div>
 
       {/* Sticky bulk action bar */}
       <AnimatePresence>

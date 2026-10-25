@@ -107,10 +107,14 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   const [tpin, setTpin] = useState('')
   const [showTpin, setShowTpin] = useState(false)
 
-  // Sender (auto-filled from profile)
+  // Sender (auto-filled from profile — not editable)
   const [senderName, setSenderName] = useState('')
   const [senderMobile, setSenderMobile] = useState('')
   const [senderEmail, setSenderEmail] = useState('')
+  const [showMobileModal, setShowMobileModal] = useState(false)
+  const [tempMobile, setTempMobile] = useState('')
+  const [savingMobile, setSavingMobile] = useState(false)
+  const [mobileModalError, setMobileModalError] = useState('')
 
   // Transfer state
   const [transferring, setTransferring] = useState(false)
@@ -259,13 +263,37 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     fetchAccounts()
   }, [fetchServiceStatus, fetchTransactions, fetchAccounts])
 
-  // Auto-fill sender from profile
+  // Auto-fill sender from profile; prompt for mobile if missing
   useEffect(() => {
     if (!user) return
     setSenderName(user.name || '')
     setSenderEmail(user.email || '')
-    setSenderMobile((user as any).phone || '')
+    const phone = (user as any).phone || ''
+    setSenderMobile(phone)
+    if (!phone) setShowMobileModal(true)
   }, [user])
+
+  const handleSaveMobile = useCallback(async () => {
+    const m = tempMobile.replace(/\D/g, '').slice(0, 10)
+    if (!/^[6-9]\d{9}$/.test(m)) { setMobileModalError('Enter a valid 10-digit mobile number'); return }
+    setSavingMobile(true)
+    setMobileModalError('')
+    try {
+      const res = await apiFetch('/api/user/update-mobile', { method: 'POST', body: JSON.stringify({ mobile: m }) })
+      const data = await res.json()
+      if (data.success) {
+        setSenderMobile(m)
+        setShowMobileModal(false)
+        setTempMobile('')
+      } else {
+        setMobileModalError(data.error || 'Failed to save')
+      }
+    } catch {
+      setMobileModalError('Network error — try again')
+    } finally {
+      setSavingMobile(false)
+    }
+  }, [tempMobile])
 
   // ── Poll single result transaction ──────────────────────────────────────────
 
@@ -377,8 +405,10 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     if (!amountNum || amountNum < 100) return setError('Minimum transfer amount is ₹100')
     if (amountNum > 200000) return setError('Maximum transfer amount is ₹2,00,000')
     if (schemeMessage) return setError(schemeMessage)
-    if (!senderName || senderName.trim().length < 2) return setError('Please fill in your Sender Name')
-    if (!senderMobile || !/^[6-9]\d{9}$/.test(senderMobile)) return setError('Please fill in a valid 10-digit Sender Mobile')
+    if (!senderMobile || !/^[6-9]\d{9}$/.test(senderMobile)) {
+      setShowMobileModal(true)
+      return
+    }
     setError(null)
     setBeneficiaryMobile(senderMobile)
     setSettlementStep('confirm')
@@ -689,6 +719,41 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
 
       {/* ─── NO ACCOUNT MODAL ───────────────────────────────────────────────── */}
       <AnimatePresence>
+        {/* ── Mobile Number Modal ─────────────────────────────────────────── */}
+        {showMobileModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-900 rounded-2xl p-6 max-w-sm w-full shadow-xl">
+              <div className="text-center space-y-4">
+                <div className="w-14 h-14 mx-auto rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <User className="w-7 h-7 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add Your Mobile Number</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Required for bank transfers. Saved to your profile — won&apos;t be asked again.</p>
+                </div>
+                <input
+                  type="tel"
+                  value={tempMobile}
+                  onChange={e => { setTempMobile(e.target.value.replace(/\D/g, '').slice(0, 10)); setMobileModalError('') }}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveMobile()}
+                  placeholder="10-digit mobile number"
+                  autoFocus
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-base text-center tracking-widest focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  maxLength={10}
+                />
+                {mobileModalError && <p className="text-sm text-red-600">{mobileModalError}</p>}
+                <button onClick={handleSaveMobile} disabled={savingMobile || tempMobile.length < 10}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                  {savingMobile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Save & Continue
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {showNoAccountModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowNoAccountModal(false)}>
@@ -872,44 +937,24 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                   />
                 </div>
 
-                {/* Sender Details */}
-                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                  <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-3 flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    Sender Details (Your Information)
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Name *</label>
-                      <input
-                        type="text"
-                        value={senderName}
-                        onChange={e => setSenderName(e.target.value)}
-                        placeholder="Your name"
-                        className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Mobile *</label>
-                      <input
-                        type="tel"
-                        value={senderMobile}
-                        onChange={e => setSenderMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        placeholder="10-digit mobile"
-                        className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Sender Email (Optional)</label>
-                      <input
-                        type="email"
-                        value={senderEmail}
-                        onChange={e => setSenderEmail(e.target.value)}
-                        placeholder="Email address"
-                        className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                      />
+                {/* Sender Details — read-only, auto-filled from profile */}
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <User className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <div className="text-sm text-blue-800 dark:text-blue-300 truncate">
+                      <span className="font-medium">{senderName}</span>
+                      {senderMobile && <span className="mx-1.5 text-blue-400">·</span>}
+                      {senderMobile && <span className="font-mono">{senderMobile}</span>}
+                      {senderEmail && <span className="mx-1.5 text-blue-400">·</span>}
+                      {senderEmail && <span className="text-blue-600">{senderEmail}</span>}
                     </div>
                   </div>
+                  {!senderMobile && (
+                    <button onClick={() => setShowMobileModal(true)}
+                      className="text-xs text-red-600 underline flex-shrink-0">
+                      Add mobile
+                    </button>
+                  )}
                 </div>
 
                 {/* Scheme warning */}

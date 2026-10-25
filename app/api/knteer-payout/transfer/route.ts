@@ -468,6 +468,8 @@ export async function POST(request: NextRequest) {
       }, { skipProviderCheck: true })
       if (refund.critical) console.error('[Knteer Transfer] CRITICAL refund failed:', { txId: txRecord.id, error: refund.error })
 
+      const refundSucceeded = refund.refunded || refund.alreadyRefunded
+
       if (charges > 0) {
         await reverseServiceCommission({
           supabase: supabaseAdmin,
@@ -477,6 +479,17 @@ export async function POST(request: NextRequest) {
           transactionUuid: txRecord.id,
         })
       }
+
+      // ── Re-update DB after refund status is known ────────────────────────
+      await supabaseAdmin
+        .from('knteer_payout_transactions')
+        .update({
+          status_message: refundSucceeded
+            ? `${transferResult.error || 'Transfer failed'} [Wallet refunded]`
+            : `${transferResult.error || 'Transfer failed'} [REFUND FAILED — manual action required]`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', txRecord.id)
     }
 
     // ── Update DB with provider response ───────────────────────────────────
@@ -488,7 +501,7 @@ export async function POST(request: NextRequest) {
         knteer_trans_id: transferResult.knteer_trans_id || null,
         utr: transferResult.utr || null,
         status_message: isDefinitiveFail
-          ? `${transferResult.error || 'Transfer failed'} [Wallet refunded]`
+          ? null  // set by the refund block above
           : isPending && transferResult.is_indeterminate
             ? `${transferResult.error || 'Awaiting confirmation'} [PENDING — verifying with provider]`
             : isSuccess ? `SUCCESS — UTR ${transferResult.utr}` : null,

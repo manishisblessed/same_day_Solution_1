@@ -124,6 +124,7 @@ async function getUserRole(_supabase: any, email: string, userId: string): Promi
       role: 'retailer',
       partner_id: retailer.data.partner_id,
       name: retailer.data.name,
+      phone: retailer.data.phone ?? undefined,
     }
   }
   if (partner.data && !partner.error) {
