@@ -983,6 +983,77 @@ async function fetchSettlementTransactions(
     console.error('[Shadval settlement error]', err)
   }
 
+  // 4. Query `knteer_payout_transactions` table (Settlement-1 via Knteer)
+  try {
+    let knQuery = supabase
+      .from('knteer_payout_transactions')
+      .select('id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, company_earning, distributor_commission, md_commission, retailer_commission_earned, payment_mode', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (user.role === 'partner') {
+      if (!partnerRetailerScope?.length) {
+        knQuery = knQuery.eq('retailer_id', '__none__')
+      } else {
+        knQuery = knQuery.in('retailer_id', partnerRetailerScope)
+      }
+    } else if (user.role === 'retailer') {
+      knQuery = knQuery.eq('retailer_id', user.partner_id)
+    } else if (user.role === 'distributor' || user.role === 'master_distributor') {
+      if (downline.retailerIds.length > 0) {
+        knQuery = knQuery.in('retailer_id', downline.retailerIds)
+      } else {
+        knQuery = knQuery.eq('retailer_id', '__none__')
+      }
+    } else if (filters.adminUserIds) {
+      knQuery = knQuery.in('retailer_id', filters.adminUserIds)
+    }
+
+    if (filters.dateFrom) knQuery = knQuery.gte('created_at', filters.dateFrom)
+    if (filters.dateTo) knQuery = knQuery.lte('created_at', filters.dateTo)
+    if (filters.status) knQuery = knQuery.eq('status', filters.status.toUpperCase())
+    if (filters.search) knQuery = knQuery.or(`partner_trans_id.ilike.%${sanitizeFilterValue(filters.search)}%,knteer_trans_id.ilike.%${sanitizeFilterValue(filters.search)}%`)
+
+    knQuery = knQuery.range(filters.offset, filters.offset + filters.limit - 1)
+
+    const { data: knData, count: knCount, error: knError } = await knQuery
+    if (knError) {
+      console.error('[Knteer settlement fetch error]', knError)
+    } else if (knData) {
+      totalCount += knCount || 0
+      allResults = allResults.concat(knData.map((tx: any) => ({
+        id: tx.id,
+        service_type: 'Settlement',
+        transaction_id: tx.partner_trans_id || tx.knteer_trans_id || tx.id,
+        tid: tx.knteer_trans_id || null,
+        amount: Number(tx.amount) || 0,
+        status: tx.status || 'PENDING',
+        commission: Number(tx.retailer_commission_earned) || 0,
+        mdr: Number(tx.charges) || 0,
+        mdr_rate: 0,
+        settlement_type: tx.payment_mode || 'IMPS',
+        scheme_name: '-',
+        scheme_id: null,
+        retailer_id: tx.retailer_id,
+        retailer_name: null,
+        distributor_id: tx.distributor_id || null,
+        distributor_name: null,
+        master_distributor_id: tx.md_id || null,
+        md_name: null,
+        payment_mode: tx.payment_mode || 'IMPS',
+        card_type: null,
+        device_serial: null,
+        description: tx.account_holder_name
+          ? `Settlement-1 to ${tx.account_holder_name} (${tx.payment_mode || 'IMPS'})`
+          : `Settlement-1 - ${tx.payment_mode || 'Bank Transfer'}`,
+        created_at: tx.created_at,
+        settlement_source: 'knteer',
+        raw: tx,
+      })))
+    }
+  } catch (err) {
+    console.error('[Knteer settlement error]', err)
+  }
+
   return { data: allResults, count: totalCount }
 }
 
