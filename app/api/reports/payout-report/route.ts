@@ -221,7 +221,40 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // 2. shadval_settlement (Settlement-2)
+    // 2. knteer_payout_transactions (Settlement-1 via Knteer)
+    await fetchAll('knteer_payout_transactions', 'id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, company_earning, distributor_commission, md_commission, retailer_commission_earned', (q) => {
+      if (scope) q = q.in('retailer_id', scope)
+      if (dateFrom) q = q.gte('created_at', dateFrom)
+      if (dateTo) q = q.lte('created_at', dateTo)
+      if (status) q = q.eq('status', status.toUpperCase())
+      if (search) q = q.or(`partner_trans_id.ilike.%${sanitize(search)}%,knteer_trans_id.ilike.%${sanitize(search)}%,account_holder_name.ilike.%${sanitize(search)}%,account_number.ilike.%${sanitize(search)}%`)
+      return q
+    }, (tx: any) => {
+      const charge = Number(tx.charges) || 0
+      const gst = Math.round(charge * GST_RATE * 100) / 100
+      return {
+        date: tx.created_at,
+        transaction_id: tx.partner_trans_id || tx.knteer_trans_id || tx.id,
+        beneficiary_name: tx.account_holder_name || '-',
+        beneficiary_account: tx.account_number || '-',
+        bank_name: tx.bank_name || '-',
+        ifsc_code: tx.ifsc_code || '-',
+        amount: Number(tx.amount) || 0,
+        charge,
+        gst,
+        total_debit: Number(tx.total_debit) || Number(tx.actual_wallet_debit) || ((Number(tx.amount) || 0) + charge + gst),
+        reference_number: tx.utr || tx.knteer_trans_id || '-',
+        status: tx.status || 'PENDING',
+        retailer_id: tx.retailer_id,
+        retailer_name: null as string | null,
+        source: 'Settlement-1',
+        company_earning: Number(tx.company_earning) || null,
+        dt_commission: Number(tx.distributor_commission) || null,
+        md_commission: Number(tx.md_commission) || null,
+      }
+    })
+
+    // 3. shadval_settlement (Settlement-2)
     await fetchAll('shadval_settlement', 'id, created_at, reference_id, order_id, account_holder_name, contact_name, account_number, ifsc_code, amount, charges, total_debit, utr, status, retailer_id, company_earning, distributor_commission, md_margin_earned', (q) => {
       if (scope) q = q.in('retailer_id', scope)
       if (dateFrom) q = q.gte('created_at', dateFrom)

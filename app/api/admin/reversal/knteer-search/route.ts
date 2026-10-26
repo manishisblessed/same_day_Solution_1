@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       'account_number', 'ifsc_code', 'account_holder_name', 'bank_name',
       'amount', 'charges', 'total_debit', 'actual_wallet_debit',
       'status', 'status_message', 'failure_reason', 'utr', 'payment_mode',
-      'wallet_debited', 'is_refunded', 'created_at', 'updated_at', 'completed_at',
+      'wallet_debited', 'created_at', 'updated_at', 'completed_at',
       'distributor_id', 'md_id', 'narration', 'remarks',
     ].join(', ')
 

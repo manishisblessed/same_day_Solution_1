@@ -145,6 +145,11 @@ export default function AdminCapabilities() {
   const [startDate, setStartDate] = useState(() => toYMD(new Date()))
   const [endDate, setEndDate] = useState(() => toYMD(new Date()))
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'FAILED' | 'SUCCESS' | 'REFUNDABLE'>('REFUNDABLE')
+  // Knteer tab uses its own date range defaulting to last 7 days
+  const [knteerStartDate, setKnteerStartDate] = useState(() => toYMD(new Date(Date.now() - 7 * 864e5)))
+  const [knteerEndDate, setKnteerEndDate] = useState(() => toYMD(new Date()))
+  const [knteerStatusFilter, setKnteerStatusFilter] = useState<'ALL' | 'PENDING' | 'FAILED' | 'SUCCESS' | 'REFUNDABLE'>('ALL')
+  const [knteerSearchText, setKnteerSearchText] = useState('')
   const [searchText, setSearchText] = useState('')
 
   // Data
@@ -225,7 +230,7 @@ export default function AdminCapabilities() {
   const runKnteerSearch = useCallback(async () => {
     setKnteerSearching(true)
     try {
-      const params = new URLSearchParams({ start: startDate, end: endDate, status: statusFilter, search: searchText.trim(), limit: '500' })
+      const params = new URLSearchParams({ start: knteerStartDate, end: knteerEndDate, status: knteerStatusFilter, search: knteerSearchText.trim(), limit: '500' })
       const res = await apiFetch(`/api/admin/reversal/knteer-search?${params.toString()}`)
       const data = await res.json()
       if (data.success) {
@@ -240,7 +245,7 @@ export default function AdminCapabilities() {
     } finally {
       setKnteerSearching(false)
     }
-  }, [startDate, endDate, statusFilter, searchText, showToast])
+  }, [knteerStartDate, knteerEndDate, knteerStatusFilter, knteerSearchText, showToast])
 
   const handleKnteerCheckStatus = useCallback(async (partnerTransId: string) => {
     setKnteerCheckingRow(partnerTransId)
@@ -470,7 +475,7 @@ export default function AdminCapabilities() {
             Settlement-2 (Shadval)
           </button>
           <button
-            onClick={() => { setActiveTab('knteer'); if (knteerRows.length === 0) runKnteerSearch() }}
+            onClick={() => { setActiveTab('knteer'); runKnteerSearch() }}
             className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'knteer' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
           >
             Reversals_KNTEER
@@ -484,17 +489,17 @@ export default function AdminCapabilities() {
               <div className="flex flex-wrap items-end gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                  <input type="date" value={knteerStartDate} onChange={e => setKnteerStartDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
-                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
+                  <input type="date" value={knteerEndDate} onChange={e => setKnteerEndDate(e.target.value)} className="px-3 py-2 border rounded-lg text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="px-3 py-2 border rounded-lg text-sm">
-                    <option value="REFUNDABLE">Refundable (Pending + Failed)</option>
+                  <select value={knteerStatusFilter} onChange={e => setKnteerStatusFilter(e.target.value as any)} className="px-3 py-2 border rounded-lg text-sm">
                     <option value="ALL">All</option>
+                    <option value="REFUNDABLE">Refundable (Pending + Failed)</option>
                     <option value="PENDING">Pending</option>
                     <option value="FAILED">Failed</option>
                     <option value="SUCCESS">Success</option>
@@ -502,9 +507,9 @@ export default function AdminCapabilities() {
                 </div>
                 <div className="flex-1 min-w-40">
                   <label className="block text-xs font-medium text-gray-500 mb-1">Search (Retailer ID / Ref / Account / UTR)</label>
-                  <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)}
+                  <input type="text" value={knteerSearchText} onChange={e => setKnteerSearchText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && runKnteerSearch()}
-                    placeholder="APITXN... / RET... / account..." className="w-full px-3 py-2 border rounded-lg text-sm" />
+                    placeholder="RET... / partner_trans_id / account..." className="w-full px-3 py-2 border rounded-lg text-sm" />
                 </div>
                 <button onClick={runKnteerSearch} disabled={knteerSearching}
                   className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
