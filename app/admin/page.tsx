@@ -28,6 +28,7 @@ import POSPartnerAPIManagement from '@/components/POSPartnerAPIManagement'
 import ServiceTransactionReport from '@/components/ServiceTransactionReport'
 import POSTransactionReport from '@/components/reports/POSTransactionReport'
 import PayoutTransactionReport from '@/components/reports/PayoutTransactionReport'
+import SettlementTransactionReport from '@/components/reports/SettlementTransactionReport'
 import BillPaymentTransactionReport from '@/components/reports/BillPaymentTransactionReport'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '@/lib/api-client'
@@ -633,7 +634,9 @@ function AdminDashboardContent() {
             <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="bbps" />
           ) : activeTab === 'aeps-report' ? (
             <ServiceTransactionReport userRole="admin" userName={user?.name} defaultService="aeps" />
-          ) : activeTab === 'settlement-report' || activeTab === 'payout-report' ? (
+          ) : activeTab === 'settlement-report' ? (
+            <SettlementTransactionReport userRole="admin" userName={user?.name} />
+          ) : activeTab === 'payout-report' ? (
             <PayoutTransactionReport userRole="admin" userName={user?.name} />
           ) : activeTab === 'settlement' ? (
             <T1SettlementControl />

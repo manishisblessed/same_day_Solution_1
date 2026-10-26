@@ -594,11 +594,10 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                   Register via Knteer &amp; save to your beneficiary list
                 </p>
                 <div className="mt-4 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
-                    <Sparkles className="w-3 h-3" />
-                    Free
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-semibold">
+                    ₹4.72
                   </span>
-                  <span className="text-xs text-gray-400">Instant registration</span>
+                  <span className="text-xs text-gray-400">One-time verification fee (₹4 + GST)</span>
                 </div>
               </div>
             </motion.button>
@@ -794,7 +793,7 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
           ) : (
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Add Bank Account</h3>
-              <p className="text-sm text-gray-500 mb-5">Register your bank account via Knteer — free, instant</p>
+              <p className="text-sm text-gray-500 mb-5">Register your bank account via Knteer — one-time ₹4.72 verification fee (₹4 + 18% GST) charged on first transfer to this account</p>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Account Number</label>

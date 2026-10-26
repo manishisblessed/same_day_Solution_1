@@ -64,6 +64,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'bill-payment-report', label: 'Bill Payment Report', icon: FileBarChart, href: '/admin?tab=bill-payment-report' },
   { id: 'aeps-report', label: 'AEPS Report', icon: FileBarChart, href: '/admin?tab=aeps-report' },
   { id: 'settlement-report', label: 'Settlement Report', icon: FileBarChart, href: '/admin?tab=settlement-report' },
+  { id: 'payout-report', label: 'Payout Report', icon: FileBarChart, href: '/admin?tab=payout-report' },
   { id: 'settlement', label: 'Settlement', icon: Timer, href: '/admin?tab=settlement' },
   { id: 'settlement-2-approvals', label: 'Settlement-2 Approvals', icon: Timer, href: '/admin?tab=settlement-2-approvals' },
   { id: 'revenue-wallet', label: 'Revenue Wallet', icon: Wallet, href: '/admin?tab=revenue-wallet' },
