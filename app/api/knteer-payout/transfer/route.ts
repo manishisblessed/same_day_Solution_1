@@ -232,7 +232,24 @@ export async function POST(request: NextRequest) {
       return addCorsHeaders(request, NextResponse.json(SCHEME_NO_VALID_SLAB, { status: SCHEME_NOT_ASSIGNED_STATUS }))
     }
 
-    const totalRequired = amountNum + charges
+    // ── Beneficiary verification charge (₹4 + 18% GST = ₹4.72 for new accounts) ──
+    const BENE_FEE_BASE = 4
+    const BENE_FEE_GST  = Math.round(BENE_FEE_BASE * 18 / 100 * 100) / 100  // 0.72
+    const BENE_FEE      = BENE_FEE_BASE + BENE_FEE_GST                       // 4.72
+
+    const { data: existingBene } = await supabaseAdmin
+      .from('knteer_beneficiaries')
+      .select('bene_code')
+      .eq('retailer_id', user.partner_id)
+      .eq('account_number', accountNumber)
+      .eq('ifsc_code', ifscCode)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    const isNewBene = !existingBene?.bene_code
+    const verificationCharge = isNewBene ? BENE_FEE : 0
+
+    const totalRequired = amountNum + charges + verificationCharge
 
     // ── Wallet balance check ───────────────────────────────────────────────
     const walletRpc = user.role === 'partner' ? 'get_partner_wallet_balance' : 'get_wallet_balance'
@@ -245,10 +262,11 @@ export async function POST(request: NextRequest) {
       if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
       return addCorsHeaders(request, NextResponse.json({
         success: false,
-        error: `Insufficient balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} + ₹${charges} charges). Available: ₹${walletBalance.toFixed(2)}`,
+        error: `Insufficient balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} transfer + ₹${charges} charges${verificationCharge > 0 ? ` + ₹${verificationCharge} verification fee` : ''}). Available: ₹${walletBalance.toFixed(2)}`,
         wallet_balance: walletBalance,
         required: totalRequired,
         charges,
+        verification_charge: verificationCharge,
       }, { status: 400 }))
     }
 
@@ -334,6 +352,8 @@ export async function POST(request: NextRequest) {
         mobile: String(mobile),
         amount: amountNum,
         charges,
+        verification_charge: verificationCharge,
+        is_new_beneficiary: isNewBene,
         total_debit: totalRequired,
         payment_mode: paymentMode,
         partner_trans_id: partnerTransId,
@@ -358,7 +378,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Debit wallet ───────────────────────────────────────────────────────
-    const debitDesc = `Knteer payout ₹${amountNum} + charge ₹${charges} to ${accountNumber} (${accountHolderName})`
+    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''}${verificationCharge > 0 ? ` + verification ₹${verificationCharge}` : ''} to ${accountNumber} (${accountHolderName})`
     let transferLedgerId: string | null = null
 
     if (user.role === 'partner') {
@@ -531,6 +551,8 @@ export async function POST(request: NextRequest) {
       status: isSuccess ? 'SUCCESS' : isDefinitiveFail ? 'FAILED' : 'PENDING',
       amount: amountNum,
       charges,
+      verification_charge: verificationCharge,
+      is_new_beneficiary: isNewBene,
       total_debited: totalRequired,
       payment_mode: paymentMode,
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),

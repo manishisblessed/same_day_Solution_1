@@ -352,9 +352,10 @@ export async function upsertPayoutCharge(
 ): Promise<{ data: SchemePayoutCharge | null; error: string | null }> {
   const supabase = getSupabase();
 
-  // Authoritative central vendor cost + minimum (Account Transfer / Payout).
+  // Authoritative central vendor cost + minimum (Settlement-1 / Account Transfer).
+  // Uses SETTLEMENT_1 vendor rates, not PAYOUT (which belongs to Settlement-2/Shadval).
   const floor = await applyServiceVendorFloor({
-    serviceKind: 'PAYOUT',
+    serviceKind: 'SETTLEMENT_1',
     scopeKey: input.transfer_mode || '*',
     category: null,
     retailer_charge: input.retailer_charge,
