@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { initiateKnteerTransfer, generateRefId, getKnteerBalance } from '@/services/knteer-payout'
 import { refundKnteerPayout } from '@/lib/knteer/refund'
+import { sendKnteerTransferCallback } from '@/lib/knteer-payout-callback'
 import {
   reserveIdempotencyKey,
   finalizeIdempotencyKey,
@@ -165,25 +166,7 @@ export async function POST(request: NextRequest) {
     }
 
     const charges = baseCharge
-
-    // ── Beneficiary verification charge (₹4 + 18% GST = ₹4.72 for new accounts) ──
-    const BENE_FEE_BASE = 4
-    const BENE_FEE_GST  = Math.round(BENE_FEE_BASE * 18 / 100 * 100) / 100  // 0.72
-    const BENE_FEE      = BENE_FEE_BASE + BENE_FEE_GST                       // 4.72
-
-    const { data: existingBene } = await supabase
-      .from('knteer_beneficiaries')
-      .select('bene_code')
-      .eq('retailer_id', partner.id)
-      .eq('account_number', accountNumber)
-      .eq('ifsc_code', ifscCode)
-      .eq('is_active', true)
-      .maybeSingle()
-
-    const isNewBene = !existingBene?.bene_code
-    const verificationCharge = isNewBene ? BENE_FEE : 0
-
-    const totalRequired = amountNum + charges + verificationCharge
+    const totalRequired = amountNum + charges
 
     // ── Partner wallet balance check ───────────────────────────────────────
     const { data: walletBalance, error: balErr } = await (supabase as any).rpc('get_partner_wallet_balance', {
@@ -201,12 +184,11 @@ export async function POST(request: NextRequest) {
         success: false,
         error: {
           code: 'INSUFFICIENT_BALANCE',
-          message: `Insufficient balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} transfer + ₹${charges} charges${verificationCharge > 0 ? ` + ₹${verificationCharge} verification fee` : ''}). Available: ₹${walletBalance.toFixed(2)}`,
+          message: `Insufficient balance. Required: ₹${totalRequired.toFixed(2)} (₹${amountNum} transfer + ₹${charges} charges). Available: ₹${walletBalance.toFixed(2)}`,
         },
         wallet_balance: walletBalance,
         required: totalRequired,
         charges,
-        verification_charge: verificationCharge,
       }, { status: 400 })
     }
 
@@ -275,8 +257,6 @@ export async function POST(request: NextRequest) {
         mobile: String(mobile),
         amount: amountNum,
         charges,
-        verification_charge: verificationCharge,
-        is_new_beneficiary: isNewBene,
         total_debit: totalRequired,
         payment_mode: paymentMode,
         partner_trans_id: partnerTransId,
@@ -301,7 +281,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Debit partner wallet ───────────────────────────────────────────────
-    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''}${verificationCharge > 0 ? ` + verification ₹${verificationCharge}` : ''} to ${accountHolderName} (${accountNumber.slice(-4)})`
+    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''} to ${accountHolderName} (${accountNumber.slice(-4)})`
     const { error: debitError } = await (supabase as any).rpc('debit_partner_wallet', {
       p_partner_id: partner.id,
       p_amount: totalRequired,
@@ -379,6 +359,16 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', txRecord.id)
 
+    // ── Fire webhook callback to partner ──────────────────────────────────
+    const callbackTx = {
+      ...txRecord,
+      status: isSuccess ? 'SUCCESS' : isDefinitiveFail ? 'FAILED' : 'PENDING',
+      knteer_trans_id: transferResult.knteer_trans_id || null,
+      utr: transferResult.utr || null,
+      actual_wallet_debit: totalRequired,
+    }
+    sendKnteerTransferCallback(partner.id, callbackTx).catch(() => {})
+
     // ── Book partner revenue on success ────────────────────────────────────
     if (isSuccess && charges > 0) {
       bookPartnerRevenue({
@@ -408,8 +398,6 @@ export async function POST(request: NextRequest) {
       status: isSuccess ? 'SUCCESS' : isDefinitiveFail ? 'FAILED' : 'PENDING',
       amount: amountNum,
       charges,
-      verification_charge: verificationCharge,
-      is_new_beneficiary: isNewBene,
       total_debited: totalRequired,
       payment_mode: paymentMode,
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),

@@ -4,6 +4,7 @@ import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/p
 import { checkKnteerStatus } from '@/services/knteer-payout'
 import { refundKnteerPayout } from '@/lib/knteer/refund'
 import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
+import { sendKnteerTransferCallback } from '@/lib/knteer-payout-callback'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -167,6 +168,9 @@ export async function GET(request: NextRequest) {
           tx.status = newStatus
           tx.utr = liveStatus.utr || null
           tx.knteer_trans_id = liveStatus.knteer_trans_id || tx.knteer_trans_id
+
+          // Fire webhook callback on status change (non-blocking)
+          sendKnteerTransferCallback(partner.id, tx).catch(() => {})
         }
       } catch {
         /* keep existing status — non-fatal */
