@@ -7,9 +7,9 @@
  * No "Knteer" branding is exposed to users — the label stays "Settlement-1".
  *
  * Flow:
- *   - Bank account verification via penny drop (shared with Settlement-2)
- *   - User selects a verified account before processing settlement
- *   - Transfer mode is always IMPS
+ *   - Beneficiary registration via Knteer add-bene (no penny-drop; Knteer has no verify API)
+ *   - User selects a registered account before processing settlement
+ *   - Transfer mode: IMPS or NEFT
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'

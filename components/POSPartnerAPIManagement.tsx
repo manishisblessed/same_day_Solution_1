@@ -842,7 +842,7 @@ export default function POSPartnerAPIManagement() {
                             <div>
                               <p className="text-sm font-medium text-gray-900 dark:text-white">Settlement / Payout</p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Bank transfers via Payout Partner API (debits partner wallet)
+                                Bank transfers via Knteer — IMPS/NEFT (no verify step; beneficiary registration + transfer)
                               </p>
                             </div>
                             <button
