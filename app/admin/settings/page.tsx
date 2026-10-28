@@ -126,6 +126,7 @@ export default function AdminSettings() {
     { key: 'shadval_main', label: 'SHADVAL Main', subtitle: 'Payout · IMPS/RTGS' },
     { key: 'shadval_verification', label: 'SHADVAL Verification', subtitle: 'KYC & Verification' },
     { key: 'ekyc', label: 'eKYC Hub', subtitle: 'Aadhaar/PAN eKYC' },
+    { key: 'knteer', label: 'Knteer Solution', subtitle: 'Settlement-1 · IMPS Payout' },
   ]
   const [walletVisibility, setWalletVisibility] = useState<Record<string, boolean>>({})
   const [walletSavingKey, setWalletSavingKey] = useState<string | null>(null)
