@@ -360,13 +360,21 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 2: Get user info
-    // For admin mode, look up retailer from DB for distributor chain
-    // For anon mode, just trust user_id — RPC handles hierarchy internally
+    // Partners have their scheme mapped directly with entity_role='partner', so we
+    // must pass the correct role — otherwise the RPC/direct-query searches for
+    // 'retailer' mappings and finds nothing, producing a false "scheme not assigned".
     let userRole = 'retailer'
     let distributorId: string | null = null
     let mdId: string | null = null
 
-    if (clientMode === 'admin') {
+    if (user.role === 'partner') {
+      // Partners sit outside the retailer/DT/MD hierarchy. Their scheme is mapped
+      // directly on their partner_id with entity_role='partner'.
+      userRole = 'partner'
+      distributorId = null
+      mdId = null
+      console.log(`[resolve-charges] Partner user — using entity_role=partner for scheme resolution`)
+    } else if (clientMode === 'admin') {
       try {
         const { data: retailer, error: retErr } = await supabase
           .from('retailers')

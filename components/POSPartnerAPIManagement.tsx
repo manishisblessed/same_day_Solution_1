@@ -103,6 +103,15 @@ function togglePay2New(events: string[], on: boolean): string[] {
   else set.delete('pay2new')
   return Array.from(set)
 }
+function hasKnteerPayout(events: string[]): boolean {
+  return events.includes('knteer')
+}
+function toggleKnteerPayout(events: string[], on: boolean): string[] {
+  const set = new Set(events)
+  if (on) set.add('knteer')
+  else set.delete('knteer')
+  return Array.from(set)
+}
 function describeEvents(events: string[]): string {
   const parts: string[] = []
   if (hasEventsGroup(events)) parts.push('POS · Settlement · Payout')
@@ -113,6 +122,7 @@ function describeEvents(events: string[]): string {
   }
   if (hasRechargekit(events)) parts.push('RechargeKit')
   if (hasPay2New(events)) parts.push('BBPS-2 / Pay2New')
+  if (hasKnteerPayout(events)) parts.push('Knteer Payout')
   return parts.length ? parts.join(' + ') : 'No events'
 }
 
@@ -1449,8 +1459,9 @@ export default function POSPartnerAPIManagement() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Add one or more callback URLs. Each endpoint independently subscribes to the
                   <strong> Events (POS · Settlement · Payout)</strong> channel, the
-                  <strong> RechargeKit (Credit Card)</strong> channel, and/or the
-                  <strong> BBPS-2 / Pay2New (Credit Card)</strong> channel. Every endpoint is signed with the
+                  <strong> RechargeKit (Credit Card)</strong> channel, the
+                  <strong> BBPS-2 / Pay2New (Credit Card)</strong> channel, and/or the
+                  <strong> Knteer Payout</strong> channel. Every endpoint is signed with the
                   same shared secret (routed by the <code>X-Sameday-Event</code> header).
                 </p>
 
@@ -1522,6 +1533,15 @@ export default function POSPartnerAPIManagement() {
                             />
                             BBPS-2 / Pay2New (Credit Card)
                           </label>
+                          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hasKnteerPayout(draft.events)}
+                              onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, events: toggleKnteerPayout(draft.events, e.target.checked) } }))}
+                              className="rounded"
+                            />
+                            Knteer Payout
+                          </label>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -1590,6 +1610,15 @@ export default function POSPartnerAPIManagement() {
                         className="rounded"
                       />
                       BBPS-2 / Pay2New (Credit Card)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hasKnteerPayout(newWebhookEvents)}
+                        onChange={(e) => setNewWebhookEvents(toggleKnteerPayout(newWebhookEvents, e.target.checked))}
+                        className="rounded"
+                      />
+                      Knteer Payout
                     </label>
                   </div>
                   <button

@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
     if (!providerFilter || providerFilter === 'knteer') {
       await fetchAll(
         'knteer_payout_transactions',
-        'id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, company_earning, distributor_commission, md_commission, retailer_commission_earned',
+        'id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, user_role, company_earning, distributor_commission, md_commission, retailer_commission_earned',
         (q) => {
           if (scope) q = q.in('retailer_id', scope)
           if (dateFrom) q = q.gte('created_at', dateFrom)
@@ -197,7 +197,7 @@ export async function GET(request: NextRequest) {
             status: tx.status || 'PENDING',
             retailer_id: tx.retailer_id,
             retailer_name: null as string | null,
-            user_type: null as string | null,
+            user_type: roleToType(tx.user_role),
             provider: 'Knteer',
             company_earning: Number(tx.company_earning) || null,
             dt_commission: Number(tx.distributor_commission) || null,
@@ -210,25 +210,33 @@ export async function GET(request: NextRequest) {
     // Sort by date desc
     allRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-    // Enrich user names + types
+    // Enrich user names + types (UUID-safe — partners.id is uuid, retailer/dist/md use text partner_id)
     const allUserIds = Array.from(new Set(allRows.map(r => r.retailer_id).filter(Boolean)))
     if (allUserIds.length > 0) {
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      const uuidIds = allUserIds.filter((id: string) => uuidRe.test(id))
+
       const nameMap = new Map<string, { name: string; type: string }>()
-      const [retRes, distRes, mdRes, partnerRes] = await Promise.all([
+      const [retRes, distRes, mdRes] = await Promise.all([
         supabase.from('retailers').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('distributors').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('master_distributors').select('partner_id, name').in('partner_id', allUserIds),
-        supabase.from('partners').select('id, name').in('id', allUserIds),
       ])
       for (const r of retRes.data || []) nameMap.set(r.partner_id, { name: r.name, type: 'RT' })
       for (const d of distRes.data || []) nameMap.set(d.partner_id, { name: d.name, type: 'DT' })
       for (const m of mdRes.data || []) nameMap.set(m.partner_id, { name: m.name, type: 'MD' })
-      for (const p of partnerRes.data || []) nameMap.set(p.id, { name: p.name, type: 'Partner' })
+      if (uuidIds.length > 0) {
+        const { data: partners } = await supabase.from('partners').select('id, name, business_name, email').in('id', uuidIds)
+        for (const p of partners || []) {
+          const n = p.name || p.business_name || p.email
+          if (n) nameMap.set(p.id, { name: n, type: 'Partner' })
+        }
+      }
       allRows.forEach(r => {
         if (r.retailer_id && nameMap.has(r.retailer_id)) {
           const info = nameMap.get(r.retailer_id)!
           r.retailer_name = info.name
-          r.user_type = info.type
+          r.user_type = info.type  // confirmed type overrides DB user_role fallback
         }
       })
     }
@@ -315,6 +323,16 @@ export async function GET(request: NextRequest) {
     console.error('[Settlement Report] Error:', error)
     return NextResponse.json({ error: 'Failed to generate report' }, { status: 500 })
   }
+}
+
+function roleToType(role?: string): string | null {
+  if (!role) return null
+  const r = role.toLowerCase()
+  if (r === 'retailer') return 'RT'
+  if (r === 'distributor') return 'DT'
+  if (r === 'master_distributor') return 'MD'
+  if (r === 'partner') return 'Partner'
+  return null
 }
 
 function emptySummary() {

@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 2. knteer_payout_transactions (Settlement-1 via Knteer)
-    await fetchAll('knteer_payout_transactions', 'id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, company_earning, distributor_commission, md_commission, retailer_commission_earned', (q) => {
+    await fetchAll('knteer_payout_transactions', 'id, created_at, partner_trans_id, knteer_trans_id, account_holder_name, account_number, ifsc_code, bank_name, amount, charges, total_debit, actual_wallet_debit, utr, status, retailer_id, distributor_id, md_id, user_role, company_earning, distributor_commission, md_commission, retailer_commission_earned', (q) => {
       if (scope) q = q.in('retailer_id', scope)
       if (dateFrom) q = q.gte('created_at', dateFrom)
       if (dateTo) q = q.lte('created_at', dateTo)
@@ -247,6 +247,7 @@ export async function GET(request: NextRequest) {
         status: tx.status || 'PENDING',
         retailer_id: tx.retailer_id,
         retailer_name: null as string | null,
+        user_type: tx.user_role ? (['retailer'].includes(tx.user_role) ? 'RT' : tx.user_role === 'distributor' ? 'DT' : tx.user_role === 'master_distributor' ? 'MD' : tx.user_role === 'partner' ? 'Partner' : null) : null,
         source: 'Settlement-1',
         company_earning: Number(tx.company_earning) || null,
         dt_commission: Number(tx.distributor_commission) || null,
@@ -290,20 +291,28 @@ export async function GET(request: NextRequest) {
     // Sort combined results by date descending
     allRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-    // Enrich user names + types across all hierarchy levels (RT / DT / MD / Partner)
+    // Enrich user names + types (UUID-safe — partners.id is uuid, retailer/dist/md use text partner_id)
     const allUserIds = Array.from(new Set(allRows.map(r => r.retailer_id).filter(Boolean)))
     if (allUserIds.length > 0) {
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      const uuidIds = allUserIds.filter((id: string) => uuidRe.test(id))
+
       const nameMap = new Map<string, { name: string; type: string }>()
-      const [retRes, distRes, mdRes, partnerRes] = await Promise.all([
+      const [retRes, distRes, mdRes] = await Promise.all([
         supabase.from('retailers').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('distributors').select('partner_id, name').in('partner_id', allUserIds),
         supabase.from('master_distributors').select('partner_id, name').in('partner_id', allUserIds),
-        supabase.from('partners').select('id, name').in('id', allUserIds),
       ])
       for (const r of retRes.data || []) nameMap.set(r.partner_id, { name: r.name, type: 'RT' })
       for (const d of distRes.data || []) nameMap.set(d.partner_id, { name: d.name, type: 'DT' })
       for (const m of mdRes.data || []) nameMap.set(m.partner_id, { name: m.name, type: 'MD' })
-      for (const p of partnerRes.data || []) nameMap.set(p.id, { name: p.name, type: 'Partner' })
+      if (uuidIds.length > 0) {
+        const { data: partners } = await supabase.from('partners').select('id, name, business_name, email').in('id', uuidIds)
+        for (const p of partners || []) {
+          const n = p.name || p.business_name || p.email
+          if (n) nameMap.set(p.id, { name: n, type: 'Partner' })
+        }
+      }
       allRows.forEach(r => {
         if (r.retailer_id && nameMap.has(r.retailer_id)) {
           const info = nameMap.get(r.retailer_id)!

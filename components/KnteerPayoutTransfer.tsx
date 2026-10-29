@@ -64,7 +64,7 @@ interface KnteerPayoutTransferProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProps) {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
 
   // Service status
   const [serviceAvailable, setServiceAvailable] = useState<boolean | null>(null)
@@ -285,6 +285,9 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
         setSenderMobile(m)
         setShowMobileModal(false)
         setTempMobile('')
+        // Refresh auth context so user.phone is updated — prevents the modal
+        // from re-appearing on next tab open (useEffect checks user.phone).
+        refreshUser().catch(() => {})
       } else {
         setMobileModalError(data.error || 'Failed to save')
       }
