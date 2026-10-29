@@ -64,7 +64,7 @@ interface KnteerPayoutTransferProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProps) {
-  const { user, refreshUser } = useAuth()
+  const { user } = useAuth()
 
   // Service status
   const [serviceAvailable, setServiceAvailable] = useState<boolean | null>(null)
@@ -263,12 +263,15 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     fetchAccounts()
   }, [fetchServiceStatus, fetchTransactions, fetchAccounts])
 
-  // Auto-fill sender from profile; prompt for mobile if missing
+  // Auto-fill sender from profile; prompt for mobile if missing.
+  // The auth context doesn't load `phone`, so we persist the saved number
+  // in localStorage to avoid re-prompting on every tab switch.
   useEffect(() => {
     if (!user) return
     setSenderName(user.name || '')
     setSenderEmail(user.email || '')
-    const phone = (user as any).phone || ''
+    const stored = typeof window !== 'undefined' ? localStorage.getItem(`partner_mobile_${user.partner_id}`) : null
+    const phone = (user as any).phone || stored || ''
     setSenderMobile(phone)
     if (!phone) setShowMobileModal(true)
   }, [user])
@@ -285,9 +288,11 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
         setSenderMobile(m)
         setShowMobileModal(false)
         setTempMobile('')
-        // Refresh auth context so user.phone is updated — prevents the modal
-        // from re-appearing on next tab open (useEffect checks user.phone).
-        refreshUser().catch(() => {})
+        // Persist in localStorage so the modal never re-appears on tab switch
+        // (auth context doesn't include `phone` in the user object).
+        if (typeof window !== 'undefined' && user?.partner_id) {
+          localStorage.setItem(`partner_mobile_${user.partner_id}`, m)
+        }
       } else {
         setMobileModalError(data.error || 'Failed to save')
       }
