@@ -302,15 +302,14 @@ export async function POST(request: NextRequest) {
       }, { status: 429 }))
     }
 
-    // ── Duplicate prevention — same account + same amount, PENDING within 15s ──
-    const fifteenSecAgo = new Date(Date.now() - 15 * 1000).toISOString()
+    // ── Duplicate prevention — same account PENDING within 15 minutes ────────
+    const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
     const { data: recentPendingTx } = await supabaseAdmin
       .from('knteer_payout_transactions')
-      .select('id, status, created_at, amount')
+      .select('id, partner_trans_id, status, created_at, amount')
       .eq('retailer_id', user.partner_id)
       .eq('account_number', accountNumber)
-      .eq('amount', amountNum)
-      .gte('created_at', fifteenSecAgo)
+      .gte('created_at', fifteenMinAgo)
       .eq('status', 'PENDING')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -320,7 +319,11 @@ export async function POST(request: NextRequest) {
       if (idemKey) await finalizeIdempotencyKey({ scope: IDEM_SCOPE, key: idemKey, status: 'failed' }).catch(() => {})
       return addCorsHeaders(request, NextResponse.json({
         success: false,
-        error: 'An identical transaction (same account + amount) is already processing. Please wait.',
+        error: 'A payout to this account is already processing. Please wait for it to complete or check its status before retrying.',
+        error_code: 'TRANSFER_IN_PROGRESS',
+        existing_transaction_id: recentPendingTx.id,
+        existing_partner_trans_id: recentPendingTx.partner_trans_id,
+        existing_amount: recentPendingTx.amount,
       }, { status: 429 }))
     }
 

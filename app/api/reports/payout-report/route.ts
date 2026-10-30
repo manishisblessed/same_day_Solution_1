@@ -205,6 +205,7 @@ export async function GET(request: NextRequest) {
       return {
         date: tx.created_at,
         transaction_id: tx.transaction_id || tx.client_ref_id || tx.id,
+        partner_trans_id: '-',
         beneficiary_name: tx.account_holder_name || '-',
         beneficiary_account: tx.account_number || '-',
         bank_name: tx.bank_name || '-',
@@ -235,6 +236,7 @@ export async function GET(request: NextRequest) {
       return {
         date: tx.created_at,
         transaction_id: tx.partner_trans_id || tx.knteer_trans_id || tx.id,
+        partner_trans_id: tx.partner_trans_id || '-',
         beneficiary_name: tx.account_holder_name || '-',
         beneficiary_account: tx.account_number || '-',
         bank_name: tx.bank_name || '-',
@@ -269,6 +271,7 @@ export async function GET(request: NextRequest) {
       return {
         date: tx.created_at,
         transaction_id: tx.reference_id || tx.order_id || tx.id,
+        partner_trans_id: '-',
         beneficiary_name: tx.account_holder_name || tx.contact_name || '-',
         beneficiary_account: tx.account_number || '-',
         bank_name: '-',
@@ -339,6 +342,7 @@ export async function GET(request: NextRequest) {
       { header: 'User Name', key: 'retailer_name' },
       { header: 'User Type', key: 'user_type' },
       { header: 'Transaction ID', key: 'transaction_id' },
+      { header: 'Partner Trans ID', key: 'partner_trans_id' },
       { header: 'Beneficiary Name', key: 'beneficiary_name' },
       { header: 'Account No.', key: 'beneficiary_account' },
       { header: 'Bank Name', key: 'bank_name' },

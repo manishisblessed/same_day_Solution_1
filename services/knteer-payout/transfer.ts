@@ -155,6 +155,19 @@ export async function initiateKnteerTransfer(
     }
   }
 
+  // ── DEFINITIVE FAILURE — provider account-level rejection ─────────────────
+  // Knteer returns error_code "PAYOUT_ERROR" (no List/transId) when the same
+  // beneficiary account is hit within their cooldown window, or for other
+  // provider-side blocks. No money is in-flight — safe to auto-refund.
+  if ((d as any).error_code === 'PAYOUT_ERROR' || (d.code !== 314 && d.status === false && !list?.transId && !list?.StatusId)) {
+    return {
+      success: false,
+      status: 'failed',
+      partner_trans_id: partnerTransId,
+      error: d.message || 'Transfer rejected by provider',
+    }
+  }
+
   // ── DEFINITIVE FAILURE — duplicate partnerTransId ─────────────────────────
   // Code 347 means we reused a partnerTransId — programming error on our side.
   if (d.code === 347) {

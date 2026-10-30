@@ -73,8 +73,8 @@ function parseKeyPermissions(raw: string[] | string | null | undefined): string[
   return []
 }
 
-// The "Events (POS · Settlement · Payout)" channel maps to these categories.
-const EVENTS_GROUP = ['pos', 'settlement', 'payout'] as const
+// The "Events (POS · Settlement)" channel maps to these categories.
+const EVENTS_GROUP = ['pos', 'settlement'] as const
 
 function hasEventsGroup(events: string[]): boolean {
   return EVENTS_GROUP.every((e) => events.includes(e))
@@ -104,21 +104,20 @@ function togglePay2New(events: string[], on: boolean): string[] {
   return Array.from(set)
 }
 function hasKnteerPayout(events: string[]): boolean {
-  return events.includes('knteer')
+  return events.includes('payout')
 }
 function toggleKnteerPayout(events: string[], on: boolean): string[] {
   const set = new Set(events)
-  if (on) set.add('knteer')
-  else set.delete('knteer')
+  if (on) set.add('payout')
+  else set.delete('payout')
   return Array.from(set)
 }
 function describeEvents(events: string[]): string {
   const parts: string[] = []
-  if (hasEventsGroup(events)) parts.push('POS · Settlement · Payout')
+  if (hasEventsGroup(events)) parts.push('POS · Settlement')
   else {
     if (events.includes('pos')) parts.push('POS')
     if (events.includes('settlement')) parts.push('Settlement')
-    if (events.includes('payout')) parts.push('Payout')
   }
   if (hasRechargekit(events)) parts.push('RechargeKit')
   if (hasPay2New(events)) parts.push('BBPS-2 / Pay2New')
@@ -1458,7 +1457,7 @@ export default function POSPartnerAPIManagement() {
               <div className="p-6 space-y-4">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Add one or more callback URLs. Each endpoint independently subscribes to the
-                  <strong> Events (POS · Settlement · Payout)</strong> channel, the
+                  <strong> Events (POS · Settlement)</strong> channel, the
                   <strong> RechargeKit (Credit Card)</strong> channel, the
                   <strong> BBPS-2 / Pay2New (Credit Card)</strong> channel, and/or the
                   <strong> Knteer Payout</strong> channel. Every endpoint is signed with the
@@ -1513,7 +1512,7 @@ export default function POSPartnerAPIManagement() {
                               onChange={(e) => setWebhookDrafts((prev) => ({ ...prev, [wh.id]: { ...draft, events: toggleEventsGroup(draft.events, e.target.checked) } }))}
                               className="rounded"
                             />
-                            Events (POS · Settlement · Payout)
+                            Events (POS · Settlement)
                           </label>
                           <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                             <input
@@ -1591,7 +1590,7 @@ export default function POSPartnerAPIManagement() {
                         onChange={(e) => setNewWebhookEvents(toggleEventsGroup(newWebhookEvents, e.target.checked))}
                         className="rounded"
                       />
-                      Events (POS · Settlement · Payout)
+                      Events (POS · Settlement)
                     </label>
                     <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                       <input

@@ -17,6 +17,11 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
+function toIST(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true })
+}
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -240,6 +245,33 @@ export async function POST(request: NextRequest) {
       }, { status: 429 })
     }
 
+    // ── Block if same account has a PENDING transfer within 15 minutes ─────
+    const pendingCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+    const { data: pendingTx } = await supabase
+      .from('knteer_payout_transactions')
+      .select('id, partner_trans_id, amount, created_at')
+      .eq('retailer_id', partner.id)
+      .eq('account_number', accountNumber)
+      .gte('created_at', pendingCutoff)
+      .eq('status', 'PENDING')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (pendingTx) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'TRANSFER_IN_PROGRESS',
+          message: 'A payout to this account is already processing. Please wait for it to complete or check its status before retrying.',
+        },
+        existing_transaction_id: pendingTx.id,
+        existing_partner_trans_id: pendingTx.partner_trans_id,
+        existing_amount: pendingTx.amount,
+      }, { status: 429 })
+    }
+
     // ── Generate unique partnerTransId ─────────────────────────────────────
     const partnerTransId = generateRefId()
 
@@ -384,6 +416,7 @@ export async function POST(request: NextRequest) {
       }).catch((e) => console.error('[Partner Payout/Knteer] Revenue booking failed:', e))
     }
 
+    const now = new Date().toISOString()
     const responseBody = {
       success: true,
       message: isSuccess
@@ -403,6 +436,11 @@ export async function POST(request: NextRequest) {
       account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
       account_holder_name: accountHolderName,
       bank_name: bankName,
+      remarks: remarks || null,
+      created_at: now,
+      created_at_ist: toIST(now),
+      completed_at: isSuccess ? now : null,
+      completed_at_ist: isSuccess ? toIST(now) : null,
       ...(schemeName ? { scheme_name: schemeName } : {}),
     }
 

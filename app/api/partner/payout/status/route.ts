@@ -10,6 +10,11 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
+function toIST(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  return new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true })
+}
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,7 +91,9 @@ export async function GET(request: NextRequest) {
         bank_name: t.bank_name,
         remarks: t.remarks || null,
         created_at: t.created_at,
+        created_at_ist: toIST(t.created_at),
         completed_at: t.completed_at || null,
+        completed_at_ist: toIST(t.completed_at),
       }))
 
       return NextResponse.json({ success: true, transactions, count: transactions.length })
@@ -195,7 +202,9 @@ export async function GET(request: NextRequest) {
         ifsc_code: tx.ifsc_code,
         remarks: tx.remarks || null,
         created_at: tx.created_at,
+        created_at_ist: toIST(tx.created_at),
         completed_at: tx.completed_at || null,
+        completed_at_ist: toIST(tx.completed_at),
       },
     })
   } catch (error: any) {
