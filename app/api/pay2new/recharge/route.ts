@@ -185,13 +185,15 @@ export async function POST(request: NextRequest) {
       return finalizeSuccess(result.order_id, result.operator_reference, result.amount, result.balance)
     }
 
-    // Definitive operator decline → refund immediately.
-    if (!threw && result && !result.success && !result.ambiguous) {
-      return await finalizeFailed(result.error || 'Recharge failed')
-    }
+    // A non-success reply is NOT proof the operator didn't fulfil the recharge —
+    // it can report non-success and still complete. Do NOT refund on the pay-call
+    // verdict alone; confirm with the vendor status API first (prevents a false
+    // refund / financial loss). Unconfirmed declines fall through to settle below.
 
-    // Ambiguous (timeout/network) or thrown → confirm before refunding.
-    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    // Ambiguous (timeout/network), thrown, or an unconfirmed decline → confirm
+    // with the vendor before any refund. Only a definitive vendor FAILED verdict
+    // justifies a refund; anything else stays PENDING for the recon cron.
+    const settled = await settlePay2New(request_id, { attempts: 3, spacingMs: 3000 })
     if (settled.outcome === 'SUCCESS') {
       return finalizeSuccess(
         settled.orderId,

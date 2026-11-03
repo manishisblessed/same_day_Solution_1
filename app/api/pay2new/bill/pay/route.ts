@@ -718,14 +718,21 @@ export async function POST(request: NextRequest) {
             console.error('[Pay2New→BBPS Fallback] Error:', bbpsErr.message)
           }
         }
+        // "Payment mode cash is disabled" is a pre-charge rejection by the biller
+        // (the card was never charged), so refunding here is safe even when the
+        // BBPS fallback could not complete.
+        return await finalizeFailed(result.error || 'Payment failed')
       }
 
-      return await finalizeFailed(result.error || 'Payment failed')
+      // Any OTHER non-success is NOT proof the card wasn't charged — a BBPS CC
+      // payment can reply non-success and still settle minutes later. Do NOT
+      // refund on the pay-call verdict; fall through to vendor confirmation.
     }
 
-    // 3) AMBIGUOUS (timeout / network / HTML) or thrown → confirm with the
-    //    provider before any money moves. NEVER refund on this signal alone.
-    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    // 3) AMBIGUOUS (timeout / network / HTML), thrown, OR an unconfirmed decline
+    //    → confirm the REAL outcome with the vendor before any money moves. Only
+    //    a definitive vendor FAILED/REFUNDED verdict justifies a refund.
+    const settled = await settlePay2New(request_id, { attempts: 3, spacingMs: 3000 })
     if (settled.outcome === 'SUCCESS') {
       return await finalizeSuccess(settled.orderId, settled.operatorReference, settled.amount)
     }

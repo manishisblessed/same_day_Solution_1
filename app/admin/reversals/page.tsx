@@ -138,6 +138,7 @@ export default function AdminCapabilities() {
   const [knteerRefunding, setKnteerRefunding] = useState<string | null>(null)
   const [knteerProviderStatus, setKnteerProviderStatus] = useState<Record<string, any>>({})
   const [knteerCheckingRow, setKnteerCheckingRow] = useState<string | null>(null)
+  const [knteerMarkingFailed, setKnteerMarkingFailed] = useState<string | null>(null)
 
   // Filters
   // Default to today so the page auto-searches a small, fast window on open.
@@ -263,6 +264,52 @@ export default function AdminCapabilities() {
       setKnteerCheckingRow(null)
     }
   }, [showToast])
+
+  const handleKnteerMarkFailed = useCallback(async (txId: string, partnerTransId: string, skipProviderCheck = false) => {
+    const ps = knteerProviderStatus[partnerTransId]
+    const providerSaysSuccess = ps?.status === 'success' && ps?.utr
+
+    if (!skipProviderCheck && !ps) {
+      showToast('Please click "Check" first to verify the provider status before marking as failed.', 'error')
+      return
+    }
+    if (!skipProviderCheck && providerSaysSuccess) {
+      showToast(`⚠️ Provider shows SUCCESS with UTR ${ps.utr}. Cannot mark as failed.`, 'error')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Mark this transaction as FAILED?\n\nRef: ${partnerTransId}\n\n` +
+      (ps ? `Provider status: ${ps.status?.toUpperCase()}${ps.utr ? ` · UTR: ${ps.utr}` : ''}\n\n` : '') +
+      `This will allow a refund to be issued to the user's wallet.`
+    )
+    if (!confirmed) return
+
+    setKnteerMarkingFailed(txId)
+    try {
+      const res = await apiFetch('/api/admin/reversal/knteer-mark-failed', {
+        method: 'POST',
+        body: JSON.stringify({ transaction_id: txId, skip_provider_check: skipProviderCheck }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        if (data.already_failed) {
+          showToast('Transaction is already marked as FAILED', 'info')
+        } else {
+          showToast(`✅ Marked as FAILED. ${data.wallet_debited ? 'Refund can now be issued.' : 'Wallet was not debited — no refund needed.'}`, 'success')
+        }
+        runKnteerSearch()
+      } else if (data.blocked_provider_success) {
+        showToast(`⚠️ BLOCKED — Provider still shows SUCCESS with UTR ${data.provider_utr}. Use "Force Mark" only with bank confirmation.`, 'error')
+      } else {
+        showToast(data.error || 'Failed to mark as failed', 'error')
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to mark as failed', 'error')
+    } finally {
+      setKnteerMarkingFailed(null)
+    }
+  }, [knteerProviderStatus, runKnteerSearch, showToast])
 
   const handleKnteerRefund = useCallback(async (txId: string, skipProviderCheck = false) => {
     setKnteerRefunding(txId)
@@ -484,6 +531,17 @@ export default function AdminCapabilities() {
 
         {/* ══ KNTEER TAB ══════════════════════════════════════════════════════ */}
         <div className={activeTab !== 'knteer' ? 'hidden' : ''}>
+            {/* Workflow guide */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-800">
+              <p className="font-semibold mb-1">Workflow — Transaction succeeded in DB but failed at Knteer:</p>
+              <ol className="list-decimal list-inside space-y-0.5 text-xs">
+                <li>Search for the transaction (set Status to <strong>All</strong> to find SUCCESS rows)</li>
+                <li>Click <strong>Check Status</strong> to verify live status at Knteer</li>
+                <li>If Knteer confirms failure → click <strong>Mark as Failed</strong> to update our DB</li>
+                <li>The <strong>Refund</strong> button will appear — click it to credit the user's wallet</li>
+              </ol>
+            </div>
+
             {/* Knteer filter bar */}
             <div className="bg-white rounded-lg shadow p-4 mb-6">
               <div className="flex flex-wrap items-end gap-4">
@@ -566,13 +624,52 @@ export default function AdminCapabilities() {
                           </p>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+                        {/* Step 1 — Check live provider status */}
                         <button onClick={() => handleKnteerCheckStatus(row.partner_trans_id)} disabled={isChecking}
+                          title="Step 1: Check live status at Knteer"
                           className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                          {isChecking ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />} Check
+                          {isChecking ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />} Check Status
                         </button>
+
+                        {/* Step 2 — Mark as FAILED (only for SUCCESS rows where provider confirms failure) */}
+                        {row.status === 'SUCCESS' && !row.is_refunded && (() => {
+                          const isMarkingThisRow = knteerMarkingFailed === row.id
+                          const ps2 = knteerProviderStatus[row.partner_trans_id]
+                          const providerFailed = ps2 && ps2.status !== 'success'
+                          const noProviderCheck = !ps2
+                          return (
+                            <>
+                              <button
+                                onClick={() => handleKnteerMarkFailed(row.id, row.partner_trans_id)}
+                                disabled={isMarkingThisRow}
+                                title={noProviderCheck ? 'Click "Check Status" first, then use this to mark as FAILED' : providerFailed ? 'Step 2: Provider confirmed failure — mark as FAILED in our DB' : 'Provider shows SUCCESS — cannot mark as failed'}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 ${
+                                  providerFailed
+                                    ? 'bg-orange-600 text-white hover:bg-orange-700'
+                                    : 'border border-orange-400 text-orange-600 hover:bg-orange-50'
+                                }`}
+                              >
+                                {isMarkingThisRow ? <RefreshCw className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                                {providerFailed ? 'Mark as Failed' : 'Mark Failed'}
+                              </button>
+                              {/* Force mark (skip provider check) — for edge cases where provider returns no record */}
+                              <button
+                                onClick={() => handleKnteerMarkFailed(row.id, row.partner_trans_id, true)}
+                                disabled={isMarkingThisRow}
+                                title="Skip provider check — use only when you have bank-level confirmation of failure"
+                                className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                <AlertTriangle className="w-3 h-3" /> Force
+                              </button>
+                            </>
+                          )
+                        })()}
+
+                        {/* Step 3 — Refund (only visible once status is FAILED/PENDING and wallet was debited) */}
                         {row.refundable && !row.is_refunded && (
                           <button onClick={() => handleKnteerRefund(row.id)} disabled={isRefunding}
+                            title="Step 3: Credit wallet back to user"
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-50">
                             {isRefunding ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} Refund
                           </button>

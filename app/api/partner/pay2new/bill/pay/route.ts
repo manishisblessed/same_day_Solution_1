@@ -628,16 +628,27 @@ export async function POST(request: NextRequest) {
       return await finalizeSuccess(result.order_id, result.operator_reference, result.amount)
     }
 
-    // 2) DEFINITIVE provider decline (valid JSON verdict, not a transport failure)
-    //    → safe to refund immediately.
+    // 2) Provider replied non-success. A biller "status != 1" is NOT proof the
+    //    card was not charged — a BBPS credit-card payment can report a
+    //    synchronous non-success and still SETTLE minutes later. Refunding on
+    //    this verdict alone is exactly what caused the silent losses (we refunded
+    //    while the vendor had SUCCEEDED). The ONLY inline-safe decline is a biller
+    //    RATE LIMIT: the biller throttled/never accepted the txn, so the card was
+    //    not charged — safe to refund and flag retryable. Every other non-success
+    //    is confirmed against the vendor status API before any refund.
     if (!threw && result && !result.success && !result.ambiguous) {
-      return await finalizeFailed(result.error || 'Payment failed', isBillerRateLimitError(result.error))
+      if (isBillerRateLimitError(result.error)) {
+        return await finalizeFailed(result.error || 'Payment failed', true)
+      }
+      // Any other decline: do NOT refund on the pay-call verdict — fall through
+      // to vendor confirmation below.
     }
 
-    // 3) AMBIGUOUS (timeout / network / HTML), thrown, OR an order-less "accepted"
-    //    success → NEVER refund/complete on this
-    //    signal. Confirm the real outcome with the provider before any money moves.
-    const settled = await settlePay2New(request_id, { attempts: 2, spacingMs: 2500 })
+    // 3) AMBIGUOUS (timeout / network / HTML), thrown, an order-less "accepted"
+    //    success, OR an unconfirmed decline → confirm the REAL outcome with the
+    //    vendor before any money moves. Only a definitive vendor FAILED/REFUNDED
+    //    order verdict justifies a refund; anything else stays PENDING.
+    const settled = await settlePay2New(request_id, { attempts: 3, spacingMs: 3000 })
     if (settled.outcome === 'SUCCESS') {
       return await finalizeSuccess(settled.orderId, settled.operatorReference, settled.amount)
     }
