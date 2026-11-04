@@ -346,33 +346,42 @@ export async function POST(request: NextRequest) {
     }
 
     // Helper: refund on failure
+    // NOTE: Supabase rpc() returns a thenable but not a full Promise — use try/catch, NOT .catch()
     const refundFee = async (reason: string) => {
       const refundRef = `REFUND_${refId}`
-      if (user.role === 'partner') {
-        await (supabaseAdmin as any).rpc('credit_partner_wallet', {
-          p_partner_id: user.partner_id, p_amount: VERIFICATION_FEE,
-          p_description: `Refund: ${reason}`, p_reference_id: refundRef,
-          p_transaction_type: 'REFUND', p_service_type: 'knteer_payout',
-        }).catch((e: any) => console.error('[Knteer Accounts] Partner refund failed:', e))
-      } else {
-        await (supabaseAdmin as any).rpc('add_ledger_entry', {
-          p_user_id: user.partner_id, p_user_role: user.role,
-          p_wallet_type: 'primary', p_fund_category: 'service',
-          p_service_type: 'knteer_payout', p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
-          p_credit: VERIFICATION_FEE, p_debit: 0,
-          p_reference_id: refundRef, p_transaction_id: null, p_status: 'completed',
-          p_remarks: `Refund: ${reason} for ${account_number} (${cleanIfsc})`,
-        }).catch((e: any) => console.error('[Knteer Accounts] Refund failed:', e))
+      try {
+        if (user.role === 'partner') {
+          await (supabaseAdmin as any).rpc('credit_partner_wallet', {
+            p_partner_id: user.partner_id, p_amount: VERIFICATION_FEE,
+            p_description: `Refund: ${reason}`, p_reference_id: refundRef,
+            p_transaction_type: 'REFUND', p_service_type: 'knteer_payout',
+          })
+        } else {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: user.partner_id, p_user_role: user.role,
+            p_wallet_type: 'primary', p_fund_category: 'service',
+            p_service_type: 'knteer_payout', p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
+            p_credit: VERIFICATION_FEE, p_debit: 0,
+            p_reference_id: refundRef, p_transaction_id: null, p_status: 'completed',
+            p_remarks: `Refund: ${reason} for ${account_number} (${cleanIfsc})`,
+          })
+        }
+      } catch (e: any) {
+        console.error('[Knteer Accounts] Refund failed:', e.message)
       }
       if (revenueLedgerId && revenueUserId) {
-        await (supabaseAdmin as any).rpc('add_ledger_entry', {
-          p_user_id: revenueUserId, p_user_role: revenueUserRole,
-          p_wallet_type: 'primary', p_fund_category: 'revenue',
-          p_service_type: 'knteer_payout', p_tx_type: 'REVENUE_REVERSAL',
-          p_credit: 0, p_debit: VERIFICATION_FEE,
-          p_reference_id: `REV_REFUND_${refId}`, p_transaction_id: null, p_status: 'completed',
-          p_remarks: `Reversal: ${reason} for ${account_number}`,
-        }).catch((e: any) => console.error('[Knteer Accounts] Revenue reversal failed:', e))
+        try {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: revenueUserId, p_user_role: revenueUserRole,
+            p_wallet_type: 'primary', p_fund_category: 'revenue',
+            p_service_type: 'knteer_payout', p_tx_type: 'REVENUE_REVERSAL',
+            p_credit: 0, p_debit: VERIFICATION_FEE,
+            p_reference_id: `REV_REFUND_${refId}`, p_transaction_id: null, p_status: 'completed',
+            p_remarks: `Reversal: ${reason} for ${account_number}`,
+          })
+        } catch (e: any) {
+          console.error('[Knteer Accounts] Revenue reversal failed:', e.message)
+        }
       }
     }
 
