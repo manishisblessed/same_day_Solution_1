@@ -17,6 +17,7 @@ type HeldItem = {
   cc_card?: string | null
   cc_mobile?: string | null
   cc_name?: string | null
+  current_status?: 'refunded' | 'held'
   amount: number
   reason: string
   created_at: string
@@ -290,12 +291,13 @@ export default function Pay2NewReversalsPage() {
                     <th className="text-right px-3 py-3 font-medium">Amount</th>
                     <th className="text-left px-3 py-3 font-medium">Reason</th>
                     <th className="text-left px-3 py-3 font-medium">Vendor check</th>
+                    <th className="text-left px-3 py-3 font-medium">Current Status</th>
                     <th className="text-left px-3 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 && !loading && (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400 flex-col"><CheckCircle className="w-6 h-6 text-green-500 inline mb-1" /><div>No held transactions. Nothing awaiting manual review.</div></td></tr>
+                    <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400 flex-col"><CheckCircle className="w-6 h-6 text-green-500 inline mb-1" /><div>No held transactions. Nothing awaiting manual review.</div></td></tr>
                   )}
                   {items.map((it) => {
                     const chk = checks[it.request_id]
@@ -317,12 +319,17 @@ export default function Pay2NewReversalsPage() {
                           {chk ? <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${DECISION_META[chk.decision].cls}`}>{chk.decision === 'refundable' ? <CheckCircle className="w-3.5 h-3.5" /> : chk.decision === 'blocked' ? <XCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{DECISION_META[chk.decision].label}</span> : <span className="text-xs text-gray-400">not checked</span>}
                         </td>
                         <td className="px-3 py-3">
+                          {it.current_status === 'refunded'
+                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700"><CheckCircle className="w-3.5 h-3.5" />Refunded</span>
+                            : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700"><Clock className="w-3.5 h-3.5" />Held</span>}
+                        </td>
+                        <td className="px-3 py-3">
                           <div className="flex items-center gap-2">
                             <button onClick={() => checkRow(it.request_id)} disabled={checking === it.request_id} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50">
                               {checking === it.request_id ? '…' : 'Check'}
                             </button>
-                            <button onClick={() => refundRow(it.request_id)} disabled={refunding === it.request_id || !chk || chk.decision !== 'refundable'} title={!chk ? 'Run Check first' : chk.decision !== 'refundable' ? 'Only refundable when vendor confirms NOT charged' : ''} className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
-                              {refunding === it.request_id ? '…' : 'Refund'}
+                            <button onClick={() => refundRow(it.request_id)} disabled={refunding === it.request_id || it.current_status === 'refunded' || !chk || chk.decision !== 'refundable'} title={it.current_status === 'refunded' ? 'Already refunded' : !chk ? 'Run Check first' : chk.decision !== 'refundable' ? 'Only refundable when vendor confirms NOT charged' : ''} className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
+                              {refunding === it.request_id ? '…' : it.current_status === 'refunded' ? 'Refunded' : 'Refund'}
                             </button>
                           </div>
                         </td>

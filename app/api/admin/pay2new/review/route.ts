@@ -193,6 +193,31 @@ export async function GET(request: NextRequest) {
       for (const it of items) { delete it._partnerId; delete it._retailerId }
     }
 
+    // ── CURRENT STATUS (already refunded?) ────────────────────────────────────
+    // A row can remain listed (the ReviewRequired tag persists on the ledger)
+    // even after its money was already returned. Surface the authoritative
+    // current status — REFUND_<id> present = refunded — so the sub-admin sees it
+    // at a glance and the Refund button can be disabled (refund is idempotent, so
+    // a re-click is harmless, just confusing).
+    try {
+      const allRefs = Array.from(new Set(items.map((i) => i.request_id).filter(Boolean)))
+      const refundedSet = new Set<string>()
+      for (let i = 0; i < allRefs.length; i += 300) {
+        const batch = allRefs.slice(i, i + 300).map((r) => `REFUND_${r}`)
+        if (!batch.length) break
+        const [p, r] = await Promise.all([
+          supabase.from('partner_wallet_ledger').select('reference_id').in('reference_id', batch),
+          supabase.from('wallet_ledger').select('reference_id').in('reference_id', batch),
+        ])
+        for (const row of p.data || []) refundedSet.add(String((row as any).reference_id).replace(/^REFUND_/, ''))
+        for (const row of r.data || []) refundedSet.add(String((row as any).reference_id).replace(/^REFUND_/, ''))
+      }
+      for (const it of items) it.current_status = refundedSet.has(it.request_id) ? 'refunded' : 'held'
+    } catch (e: any) {
+      console.error('[Admin Pay2New Review] current-status error:', e?.message)
+      for (const it of items) if (!it.current_status) it.current_status = 'held'
+    }
+
     items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     return NextResponse.json({ success: true, count: items.length, items })
