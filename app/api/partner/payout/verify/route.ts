@@ -2,13 +2,14 @@
  * POST /api/partner/payout/verify
  *
  * Penny-drop account verification via eKYC Hub (penny-less endpoint).
- * FREE — no wallet charge.
+ * Charges ₹4 + 18% GST = ₹4.72 per successful verification.
  *
  * Returns the bank-verified account holder name so the partner can
  * confirm account details before registering via POST /accounts.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } from '@/lib/settings/account-verification'
@@ -16,6 +17,18 @@ import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } f
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
+
+const VERIFY_FEE_BASE = 4
+const VERIFY_FEE_GST  = Math.round(VERIFY_FEE_BASE * 18 / 100 * 100) / 100  // 0.72
+const VERIFY_FEE      = VERIFY_FEE_BASE + VERIFY_FEE_GST                    // 4.72
+
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -98,6 +111,42 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const supabase = getSupabase()
+
+    // ── Check wallet balance ───────────────────────────────────────────────────
+    const { data: walletBalance, error: balErr } = await (supabase as any).rpc(
+      'get_partner_wallet_balance', { p_partner_id: partner.id }
+    )
+    if (balErr || walletBalance === null) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to check wallet balance' } },
+        { status: 500 }
+      )
+    }
+    if ((walletBalance || 0) < VERIFY_FEE) {
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'INSUFFICIENT_BALANCE',
+          message: `Insufficient balance. Account verification fee is ₹${VERIFY_FEE} (₹${VERIFY_FEE_BASE} + ₹${VERIFY_FEE_GST} GST). Available: ₹${(walletBalance || 0).toFixed(2)}`,
+        },
+        wallet_balance: walletBalance,
+        verification_fee: VERIFY_FEE,
+      }, { status: 400 })
+    }
+
+    const { data: walletInfo } = await supabase
+      .from('partner_wallets')
+      .select('is_frozen, freeze_reason')
+      .eq('partner_id', partner.id)
+      .maybeSingle()
+    if (walletInfo?.is_frozen) {
+      return NextResponse.json(
+        { success: false, error: { code: 'WALLET_FROZEN', message: `Wallet is frozen: ${walletInfo.freeze_reason || 'Contact admin'}` } },
+        { status: 403 }
+      )
+    }
+
     const orderId = generateOrderId('PTNR_VFY')
 
     let result: Awaited<ReturnType<typeof verifyBankPennyLess>>
@@ -134,14 +183,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── Debit verification fee after successful eKYC ───────────────────────────
+    const refId = `KPAY_VFY_${Date.now()}_${Math.random().toString(36).slice(2, 7).toUpperCase()}`
+    const debitDesc = `Account verification fee ₹${VERIFY_FEE} (₹${VERIFY_FEE_BASE} + ₹${VERIFY_FEE_GST} GST) — ${normalizedAccount.slice(-4)} / ${normalizedIfsc} [eKYC penny-less]`
+    const { error: debitError } = await (supabase as any).rpc('debit_partner_wallet', {
+      p_partner_id:   partner.id,
+      p_amount:       VERIFY_FEE,
+      p_description:  debitDesc,
+      p_reference_id: refId,
+      p_service_type: 'knteer_payout',
+    })
+
+    if (debitError) {
+      console.error('[Partner Payout Verify] CRITICAL: eKYC verified but wallet debit failed', {
+        partnerId: partner.id, refId, error: debitError.message,
+      })
+      // Verification succeeded — still return success; debit failure logged for reconciliation
+    }
+
     return NextResponse.json({
       success: true,
       is_valid: true,
       account_holder_name: result.nameAtBank,
       bank_name: (body.bankName || '').trim() || normalizedIfsc.substring(0, 4).toUpperCase(),
       branch_name: null,
-      verification_charges: 0,
-      message: 'Account verified successfully via eKYC Hub',
+      verification_charges: VERIFY_FEE,
+      verification_charges_detail: `₹${VERIFY_FEE_BASE} + ₹${VERIFY_FEE_GST} GST`,
+      message: `Account verified successfully via eKYC Hub. ₹${VERIFY_FEE} charged.`,
       reference_id: orderId,
     })
   } catch (error: any) {

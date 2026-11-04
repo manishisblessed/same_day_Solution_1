@@ -139,26 +139,41 @@ function generateDeviceFingerprint(): string {
 // SHARED BIOMETRIC CAPTURE UTILITY
 // ============================================================================
 
+/** Thrown when RD Service is reachable but the SSL cert is not yet trusted in the browser. */
+export class RDCertError extends Error {
+  constructor() {
+    super(
+      'Mantra RD Service SSL certificate is not trusted by your browser. ' +
+      'Open a new tab, go to https://127.0.0.1:11100/rd/info, click Advanced → Proceed, then retry.'
+    );
+    this.name = 'RDCertError';
+  }
+}
+
 async function captureBiometric(wadh: string = ''): Promise<BiometricData | null> {
+  // MFS100 uses HTTP; MFS110 uses HTTPS with a self-signed cert.
+  // Try HTTP first (no cert issues), then HTTPS as fallback.
   const rdServicePorts = [11100, 11101, 11102];
+  const protocols = ['http', 'https'];
+
+  let lastErr: unknown = null;
 
   for (const port of rdServicePorts) {
-    try {
-      const captureXml = `<?xml version="1.0"?>
-        <PidOptions ver="1.0">
-          <Opts fCount="1" fType="2" iCount="0" pCount="0" pgCount="2" format="0" pidVer="2.0" timeout="20000" posh="UNKNOWN" env="P" wadh="${wadh}" />
-          <CustOpts><Param name="mantrakey" value="" /></CustOpts>
-        </PidOptions>`;
+    for (const proto of protocols) {
+      try {
+        const captureXml = `<?xml version="1.0"?><PidOptions ver="1.0"><Opts fCount="1" fType="2" iCount="0" pCount="0" pgCount="2" format="0" pidVer="2.0" timeout="20000" posh="UNKNOWN" env="P" wadh="${wadh}" /><CustOpts><Param name="mantrakey" value="" /></CustOpts></PidOptions>`;
 
-      const response = await fetch(`https://127.0.0.1:${port}/rd/capture`, {
-        method: 'CAPTURE',
-        body: captureXml,
-        headers: { 'Content-Type': 'text/xml' }
-      });
+        const response = await fetch(`${proto}://127.0.0.1:${port}/rd/capture`, {
+          method: 'CAPTURE',
+          mode: 'cors',
+          body: captureXml,
+          headers: { 'Content-Type': 'text/xml' }
+        });
 
-      if (response.ok) {
+        if (!response.ok) continue;
+
         const xml = await response.text();
-        console.log('[Biometric] Raw RD capture XML:', xml);
+        console.log(`[Biometric] RD capture OK on ${proto}:${port}`, xml);
         const parser = new DOMParser();
         const doc = parser.parseFromString(xml, 'text/xml');
 
@@ -174,24 +189,18 @@ async function captureBiometric(wadh: string = ''): Promise<BiometricData | null
 
         let srno = deviceInfo?.getAttribute('srno') || '';
         if (!srno) {
-          const params = doc.querySelectorAll('Param');
-          params.forEach(param => {
-            if (param.getAttribute('name') === 'srno') {
-              srno = param.getAttribute('value') || '';
-            }
+          doc.querySelectorAll('Param').forEach(param => {
+            if (param.getAttribute('name') === 'srno') srno = param.getAttribute('value') || '';
           });
         }
 
-        const ci = skey?.getAttribute('ci') || '';
-        const mc = deviceInfo?.getAttribute('mc') || '';
-        const dc = deviceInfo?.getAttribute('dc') || '';
-
         return {
           bioType: 'FINGER',
-          dc, ci,
+          dc: deviceInfo?.getAttribute('dc') || '',
+          ci: skey?.getAttribute('ci') || '',
           hmac: hmac?.textContent || '',
           dpId: deviceInfo?.getAttribute('dpId') || '',
-          mc,
+          mc: deviceInfo?.getAttribute('mc') || '',
           pidDataType: data?.getAttribute('type') || '',
           mi: deviceInfo?.getAttribute('mi') || '',
           rdsId: deviceInfo?.getAttribute('rdsId') || '',
@@ -208,11 +217,29 @@ async function captureBiometric(wadh: string = ''): Promise<BiometricData | null
           nmPoints: respEl?.getAttribute('nmPoints') || '0',
           rdsVer: deviceInfo?.getAttribute('rdsVer') || ''
         };
+      } catch (err) {
+        const msg = String(err);
+        // Detect SSL/cert errors — typical in MFS110 when cert not yet trusted
+        if (
+          proto === 'https' &&
+          (msg.includes('ERR_CERT') || msg.includes('certificate') ||
+           msg.includes('SSL') || msg.includes('Failed to fetch') ||
+           msg.includes('NetworkError') || msg.includes('net::'))
+        ) {
+          lastErr = new RDCertError();
+        } else {
+          lastErr = err;
+        }
+        console.warn(`[Biometric] ${proto}://127.0.0.1:${port}/rd/capture failed:`, err);
+        continue;
       }
-    } catch {
-      continue;
     }
   }
+
+  // If the only failure was a cert trust error, surface it clearly instead of
+  // showing the generic "device not connected" message.
+  if (lastErr instanceof RDCertError) throw lastErr;
+
   return null;
 }
 
@@ -1051,15 +1078,15 @@ const BiometricLogin = ({
   const [deviceInfo, setDeviceInfo] = useState<{ name: string; serial: string } | null>(null);
 
   const checkDevice = useCallback(async () => {
-    try {
-      const rdServicePorts = [11100, 11101, 11102];
-      for (const port of rdServicePorts) {
+    const rdServicePorts = [11100, 11101, 11102];
+    const protocols = ['http', 'https'];
+    for (const port of rdServicePorts) {
+      for (const proto of protocols) {
         try {
-          const response = await fetch(`https://127.0.0.1:${port}/rd/info`, {
+          const response = await fetch(`${proto}://127.0.0.1:${port}/rd/info`, {
             method: 'RDSERVICE',
             mode: 'cors'
-          }).catch(() => null);
-          
+          });
           if (response?.ok) {
             const text = await response.text();
             const parser = new DOMParser();
@@ -1070,17 +1097,17 @@ const BiometricLogin = ({
                 name: deviceEl.getAttribute('info') || 'Biometric Device',
                 serial: deviceEl.getAttribute('srno') || 'Unknown'
               });
+              console.log(`[Biometric] Device detected on ${proto}:${port}`);
               return true;
             }
           }
-        } catch {
+        } catch (err) {
+          console.warn(`[Biometric] Device check failed on ${proto}:${port}:`, err);
           continue;
         }
       }
-      return false;
-    } catch {
-      return false;
     }
+    return false;
   }, []);
 
   useEffect(() => {
@@ -1119,9 +1146,9 @@ const BiometricLogin = ({
         }
       } else {
         const biometricData = await captureFingerprint();
-        
+
         if (!biometricData) {
-          throw new Error('Failed to capture fingerprint. Please ensure device is connected.');
+          throw new Error('Failed to capture fingerprint. Please ensure the Mantra device is plugged in and the RD Service is running.');
         }
 
         setStatus('processing');
@@ -1156,6 +1183,13 @@ const BiometricLogin = ({
         }
       }
     } catch (error) {
+      // RDCertError: MFS110 SSL cert not trusted — give actionable guidance
+      if (error instanceof RDCertError) {
+        setStatus('error');
+        setMessage(error.message);
+        onError(error.message);
+        return;
+      }
       const errorMsg = error instanceof Error ? error.message : 'Authentication failed';
       const msgLower = errorMsg.toLowerCase();
       if (msgLower.includes('logged in successfully') || msgLower.includes('login successful')) {
@@ -1360,7 +1394,7 @@ const TransactionPanel = ({
       const biometricData = await captureBiometric(wadh);
       if (!biometricData) {
         setTwoFAStatus('error');
-        setTwoFAMessage('Failed to capture fingerprint. Ensure device is connected.');
+        setTwoFAMessage('Failed to capture fingerprint. Ensure the Mantra device is plugged in and RD Service is running.');
         return;
       }
 
