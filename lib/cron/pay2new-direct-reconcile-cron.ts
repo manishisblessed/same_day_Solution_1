@@ -44,8 +44,9 @@ function posInt(v: string | undefined, def: number): number {
 const CFG = {
   enabled: process.env.PAY2NEW_DIRECT_RECON_ENABLED !== 'false',
   dryRun: process.env.PAY2NEW_DIRECT_RECON_DRY_RUN !== 'false',
-  // 15-min FLOOR only — no upper age bound (see policy note in the header).
-  minAgeMin: posInt(process.env.PAY2NEW_DIRECT_RECON_MIN_AGE_MIN, 15),
+  // 30-min FLOOR — gives the payment time to settle and enables the two-cycle
+  // double-check before any auto-refund. No upper age bound (see header policy).
+  minAgeMin: posInt(process.env.PAY2NEW_DIRECT_RECON_MIN_AGE_MIN, 30),
   batch: posInt(process.env.PAY2NEW_DIRECT_RECON_BATCH, 50),
   maxAmount: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_AMOUNT, 100000),
   maxRefundsPerRun: posInt(process.env.PAY2NEW_DIRECT_RECON_MAX_REFUNDS_PER_RUN, 10),
@@ -71,6 +72,7 @@ interface P2NTxn {
   charge: number | null
   total_debit: number | null
   status: string
+  review_reason: string | null
   created_at: string
 }
 
@@ -213,7 +215,7 @@ async function runCheck(): Promise<void> {
     const buildCandidateQuery = () =>
       supabase
         .from('pay2new_transactions')
-        .select('id, user_id, user_role, request_id, product_code, product_name, amount, charge, total_debit, status, created_at')
+        .select('id, user_id, user_role, request_id, product_code, product_name, amount, charge, total_debit, status, review_reason, created_at')
         .eq('status', 'pending')
         .eq('review_required', false)
         .ilike('request_id', 'SDS%')
@@ -292,6 +294,21 @@ async function runCheck(): Promise<void> {
       if (!Number.isFinite(amount) || amount <= 0) {
         // Orphan claim (no debit captured) — release the pending lock.
         if (!CFG.dryRun) await markTxn(supabase, c.id, 'failed', { error_message: 'orphan pending (no debit)' })
+        continue
+      }
+
+      // ── DOUBLE-CHECK: require TWO independent vendor confirmations of
+      // FAILED/REFUNDED before refunding. Stash the first on review_reason (the row
+      // stays status='pending', review_required=false so it returns next cycle) and
+      // refund only when the next cycle re-confirms. A later SUCCESS / not-found
+      // supersedes it. Gated like the other side-effects (no-op in dry-run).
+      if (c.review_reason !== 'failed_confirm_1') {
+        if (!CFG.dryRun) {
+          await supabase.from('pay2new_transactions').update({ review_reason: 'failed_confirm_1' }).eq('id', c.id)
+          console.log(`[Pay2New-DirectRecon] FAILED 1st confirmation ref=${ref} — holding for 2nd check`)
+        } else {
+          console.log(`[Pay2New-DirectRecon] DRY-RUN would 1st-confirm ref=${ref}`)
+        }
         continue
       }
 

@@ -53,7 +53,7 @@ const SELECT_COLS = 'id, reference_id, description, status, created_at, debit, b
 const NEGATIVE_VERDICT_MIN_AGE_MS =
   (Number(process.env.PAY2NEW_NEGATIVE_VERDICT_MIN_AGE_MIN) > 0
     ? Number(process.env.PAY2NEW_NEGATIVE_VERDICT_MIN_AGE_MIN)
-    : 15) * 60_000
+    : 30) * 60_000
 
 export function parseOrderId(desc: string | null): string | null {
   const m = desc?.match(/OrderID:([^\s|]+)/)

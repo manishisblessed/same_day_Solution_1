@@ -123,7 +123,9 @@ const CFG = {
   // as it takes us to confirm it; a PENDING one stays held indefinitely until
   // the provider gives a terminal status. (Policy: never false-refund a paid
   // bill — holding funds forever beats refunding a success.)
-  minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 15),
+  // 30-min FLOOR: an auto-refund can only happen ≥30 min after the txn, giving
+  // the payment time to settle and allowing the two-cycle double-check below.
+  minAgeMin: posInt(process.env.PAY2NEW_RECON_MIN_AGE_MIN, 30),
   // Candidates inspected per run (split half newest-first, half oldest-first).
   batch: posInt(process.env.PAY2NEW_RECON_BATCH, 50),
   // Refuse to auto-refund above this amount; flag for manual review instead.
@@ -280,6 +282,22 @@ async function runCheck(): Promise<void> {
       // ---- Definitive order-level FAILED/REFUNDED: partner is owed a refund ----
       const amount = Number(c.debit)
       if (!Number.isFinite(amount) || amount <= 0) continue
+
+      // ── DOUBLE-CHECK: never auto-refund on a SINGLE confirmed-FAILED sighting.
+      // On the first definitive FAILED/REFUNDED verdict, stamp the row and wait
+      // for a SECOND, independent vendor confirmation on a later cycle (≥1 cron
+      // tick later, and always ≥30 min after the txn) before any money moves.
+      // This is a non-financial annotation, so it runs even in dry-run. The
+      // candidate query intentionally does NOT exclude FailedConfirmed, so the row
+      // returns next cycle; a later SUCCESS (OrderID) or not-found supersedes it.
+      if (!/FailedConfirmed/i.test(c.description || '')) {
+        await supabase
+          .from('partner_wallet_ledger')
+          .update({ description: `${c.description || ''} | FailedConfirmed(1)@${new Date().toISOString()}` })
+          .eq('id', c.id)
+        console.log(`[Pay2New-Recon] FAILED 1st confirmation ref=${ref} — holding for 2nd check next cycle`)
+        continue
+      }
 
       if (amount > CFG.maxAmount) {
         console.error(

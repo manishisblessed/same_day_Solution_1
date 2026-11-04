@@ -4,6 +4,7 @@ import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-acces
 import { createClient } from '@supabase/supabase-js'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 import { cleanDescription } from '@/lib/format'
+import { derivePay2NewReportStatus, hasPay2NewOrderStamp } from '@/lib/pay2new/display-status'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -655,6 +656,46 @@ async function fetchBBPSTransactions(
     console.error('[BBPS-2/CC ledger fetch error]', err)
   }
 
+  // Resolve the EXACT Pay2New / Rechargekit status for the CC rows just added so
+  // the report never shows the bookkeeping word 'completed'. Uses only local
+  // signals: pay2new_transactions (source of truth) + OrderID stamp + REFUND_.
+  try {
+    const ccRows = normalized.filter((r) => r.payment_mode === 'BBPS-2' || r.payment_mode === 'Credit Card')
+    if (ccRows.length > 0) {
+      const p2nRefs = Array.from(new Set(
+        ccRows.filter((r) => r.raw?.service_type === 'pay2new').map((r) => r.transaction_id).filter(Boolean)
+      ))
+      const authByRef = new Map<string, string>()
+      for (let i = 0; i < p2nRefs.length; i += 300) {
+        const batch = p2nRefs.slice(i, i + 300)
+        const { data } = await supabase.from('pay2new_transactions').select('request_id, status').in('request_id', batch)
+        for (const t of data || []) if (t.request_id) authByRef.set(t.request_id, t.status)
+      }
+      const allRefs = Array.from(new Set(ccRows.map((r) => r.transaction_id).filter(Boolean)))
+      const refundSet = new Set<string>()
+      for (let i = 0; i < allRefs.length; i += 300) {
+        const batch = allRefs.slice(i, i + 300).map((id) => `REFUND_${id}`)
+        const { data } = await supabase.from('wallet_ledger').select('reference_id').in('reference_id', batch)
+        for (const r of data || []) refundSet.add(String(r.reference_id).replace(/^REFUND_/, ''))
+      }
+      for (const r of ccRows) {
+        if (r.raw?.service_type === 'rechargekit') {
+          const s = String(r.status || '').toLowerCase()
+          r.status = s === 'failed' || s === 'refunded' || s === 'pending' ? s : 'success'
+        } else {
+          r.status = derivePay2NewReportStatus({
+            rawStatus: r.status,
+            authoritative: authByRef.get(r.transaction_id),
+            hasOrderId: hasPay2NewOrderStamp(r.raw?.description),
+            hasRefund: refundSet.has(r.transaction_id),
+          })
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[BBPS-2/CC status resolve error]', err)
+  }
+
   return { data: normalized, count: totalCount }
 }
 
@@ -1206,6 +1247,14 @@ async function fetchCreditCardTransactions(
     created_at: tx.created_at,
     raw: tx,
   }))
+
+  // Never surface the bookkeeping word 'completed' for a credit-card payment: a
+  // completed Rechargekit debit is a real charge (success); failures are already
+  // written 'failed'/'refunded'.
+  for (const r of normalized) {
+    const s = String(r.status || '').toLowerCase()
+    r.status = s === 'failed' || s === 'refunded' || s === 'pending' ? s : 'success'
+  }
 
   return { data: normalized, count: count || 0 }
 }

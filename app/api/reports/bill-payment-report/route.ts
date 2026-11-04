@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner } from '@/lib/partner-access'
 import { createClient } from '@supabase/supabase-js'
 import { generateCSVResponse, generateExcelResponse, generatePDFResponse, type ReportColumn } from '@/lib/reports/generator'
+import { derivePay2NewReportStatus } from '@/lib/pay2new/display-status'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -536,22 +537,32 @@ export async function GET(request: NextRequest) {
       }
     }
     for (const row of allRows) {
-      if (!isPay2new(row.source)) continue
-      const s = statusByRef.get(row.reference_number)
-      if (s) {
-        row.status = s // pending | success | failed | refunded (source of truth)
-      } else if (row.user_type === 'partner') {
-        // 2) App-flow / partner-API rows have NO pay2new_transactions row → derive
-        //    from the ledger. A refund already flipped the row to 'failed'
-        //    (definitive). An OrderID stamp means recon/finalize confirmed SUCCESS.
-        //    Otherwise KEEP the ledger status — do NOT force 'pending': for this
-        //    flow 'completed' debits are overwhelmingly real settlements recon has
-        //    not yet stamped with an OrderID (25/25 vendor=SUCCESS on PEONE's
-        //    unstamped backlog). Genuine failures still surface via the refund
-        //    pass + recon flipping the row to 'failed'.
-        if (row.status !== 'failed' && (row as any)._hasOrderId) row.status = 'success'
+      const isP2N = isPay2new(row.source)
+      const isRk = row.source === 'BBPS_Rechargekit_Credit_Card'
+      if (isP2N) {
+        // Exact Pay2New lifecycle status — NEVER the bookkeeping word 'completed'.
+        // Precedence: pay2new_transactions (source of truth) > refund-flip ('failed')
+        // > OrderID stamp ('success') > otherwise 'pending' (recon converges it to
+        // success once it verifies & stamps the OrderID with the vendor).
+        row.status = derivePay2NewReportStatus({
+          rawStatus: row.status,
+          authoritative: statusByRef.get(row.reference_number),
+          hasOrderId: !!(row as any)._hasOrderId,
+        })
+      } else if (isRk) {
+        // Rechargekit CC has no pay2new_transactions row and no OrderID stamp in
+        // this flow: a 'completed' debit is a real charge (success); the refund
+        // pass already flips genuine failures to 'failed'. Just drop the word.
+        const s = String(row.status || '').toLowerCase()
+        row.status = s === 'failed' || s === 'refunded' || s === 'pending' ? s : 'success'
       }
-      // retailer with no pay2new_transactions row (rare/legacy): leave as-is.
+    }
+
+    // Final safety net: the word 'completed' must never reach a bill-payment row.
+    // Any remaining 'completed' (e.g. a BBPS-1 partner debit) means the entry
+    // posted and settled → show it as 'success' (matches the summary bucketing).
+    for (const row of allRows) {
+      if (String(row.status || '').toLowerCase() === 'completed') row.status = 'success'
     }
 
     // Clean up internal fields

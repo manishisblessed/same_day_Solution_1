@@ -86,6 +86,23 @@ jobs:
               fi
             fi
 
+            # Enforce Pay2New auto-reconcile/auto-refund LIVE mode. The recon
+            # crons default to DRY-RUN (safe) and only move money when these are
+            # explicitly 'false'. The production plan requires auto-refund active,
+            # so set them authoritatively on every deploy (strip any stale line,
+            # then append the canonical value). To PAUSE auto-refunds, flip these
+            # to 'true' here — the change is tracked in git and applied on deploy.
+            echo "Enforcing Pay2New live-reconcile flags in .env.local..."
+            touch .env.local
+            # Guarantee a trailing newline so appends never join a prior line.
+            [ -n "$(tail -c1 .env.local 2>/dev/null)" ] && printf '\n' >> .env.local
+            for kv in "PAY2NEW_RECON_DRY_RUN=false" "PAY2NEW_DIRECT_RECON_DRY_RUN=false"; do
+              key="${kv%%=*}"
+              sed -i "/^${key}=/d" .env.local
+              echo "$kv" >> .env.local
+              echo "  set ${kv}"
+            done
+
             # Apply pending DB migrations BEFORE build/restart so the new code
             # never starts against an out-of-date schema. Aborts deploy on failure.
             echo "Applying DB migrations (db/migrations)..."

@@ -3,6 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { pay2newCheckStatus } from '@/services/pay2new'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
+import * as Sentry from '@sentry/nextjs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -86,6 +87,60 @@ export async function GET(request: NextRequest) {
       })),
     ]
 
+    // ── COMPLETENESS SAFETY NET ──────────────────────────────────────────────
+    // Also surface partner-API pay2new debits that are STUCK (debited, aged past
+    // the 30-min auto floor, no recorded order, not failed) but have not yet been
+    // tagged ReviewRequired — so held money can never stay invisible if a recon
+    // cycle has not reached/tagged it. Rows already refunded (REFUND_) or already
+    // listed above are excluded/deduped.
+    try {
+      const floorIso = new Date(Date.now() - 30 * 60_000).toISOString()
+      const { data: stuck } = await supabase
+        .from('partner_wallet_ledger')
+        .select('reference_id, partner_id, debit, description, created_at')
+        .eq('service_type', 'pay2new')
+        .eq('transaction_type', 'DEBIT')
+        .ilike('reference_id', 'SDS%')
+        .neq('status', 'failed')
+        .gt('debit', 0)
+        .gte('created_at', since)
+        .lt('created_at', floorIso)
+        .not('description', 'ilike', '%OrderID:%')
+        .not('description', 'ilike', '%ReconVerified%')
+        .not('description', 'ilike', '%ReviewRequired%')
+        .order('created_at', { ascending: false })
+        .limit(500)
+
+      const stuckRows = (stuck || []) as Array<{ reference_id: string; partner_id: string; debit: number; description: string | null; created_at: string }>
+      const refundedSet = new Set<string>()
+      for (let i = 0; i < stuckRows.length; i += 300) {
+        const batch = stuckRows.slice(i, i + 300).map((r) => `REFUND_${r.reference_id}`)
+        if (batch.length === 0) break
+        const { data: refs } = await supabase
+          .from('partner_wallet_ledger')
+          .select('reference_id')
+          .in('reference_id', batch)
+        for (const r of refs || []) refundedSet.add(String((r as any).reference_id).replace(/^REFUND_/, ''))
+      }
+
+      const seen = new Set(items.map((i) => i.request_id))
+      for (const r of stuckRows) {
+        if (refundedSet.has(r.reference_id) || seen.has(r.reference_id)) continue
+        items.push({
+          request_id: r.reference_id,
+          owner: 'partner_api',
+          amount: Number(r.debit),
+          reason: /FailedConfirmed/i.test(r.description || '') ? 'failed — auto-refund confirming' : 'unverified',
+          created_at: r.created_at,
+          product_name: 'BBPS-2 CC',
+        })
+      }
+    } catch (e: any) {
+      console.error('[Admin Pay2New Review] stuck-discovery error:', e?.message)
+    }
+
+    items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
     return NextResponse.json({ success: true, count: items.length, items })
   } catch (error: any) {
     console.error('[Admin Pay2New Review] GET error:', error)
@@ -130,7 +185,21 @@ export async function POST(request: NextRequest) {
 
     for (const requestId of requestIds) {
       try {
-        results.push(await processOne(supabase, requestId, dryRun))
+        const out = await processOne(supabase, requestId, dryRun)
+        results.push(out)
+        // AUDIT TRAIL: record who refunded what, the vendor verdict at click time,
+        // and the amount. This is the accountability record for the delegated
+        // sub-admin workflow (admin / finance_executive).
+        if (!dryRun && out.result === 'refunded') {
+          const line = `[Pay2New Manual Refund AUDIT] by=${admin.id} role=${admin.role} request_id=${out.request_id} owner=${out.owner} amount=${out.amount} vendor=${out.provider_status || 'n/a'} reason=${out.message || ''}`
+          console.log(line)
+          try {
+            Sentry.captureMessage(
+              `Pay2New manual refund: ${out.request_id} ₹${out.amount} by ${admin.id} (vendor=${out.provider_status || 'n/a'})`,
+              'info'
+            )
+          } catch {}
+        }
       } catch (e: any) {
         results.push({ request_id: requestId, result: 'error', message: e?.message })
       }
