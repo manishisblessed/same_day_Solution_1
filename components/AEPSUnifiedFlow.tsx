@@ -141,20 +141,23 @@ function generateDeviceFingerprint(): string {
 
 /** Thrown when RD Service is reachable but the SSL cert is not yet trusted in the browser. */
 export class RDCertError extends Error {
-  constructor() {
+  certUrl: string;
+  constructor(port = 11100) {
+    const url = `https://127.0.0.1:${port}/rd/info`;
     super(
       'Mantra RD Service SSL certificate is not trusted by your browser. ' +
-      'Open a new tab, go to https://127.0.0.1:11100/rd/info, click Advanced → Proceed, then retry.'
+      `Open this link in a new tab → ${url} — click Advanced → Proceed to 127.0.0.1, then come back and retry.`
     );
     this.name = 'RDCertError';
+    this.certUrl = url;
   }
 }
 
 async function captureBiometric(wadh: string = ''): Promise<BiometricData | null> {
-  // MFS100 uses HTTP; MFS110 uses HTTPS with a self-signed cert.
-  // Try HTTP first (no cert issues), then HTTPS as fallback.
+  // MFS110 uses HTTPS (self-signed cert); MFS100 uses HTTP.
+  // Try HTTPS first — it's what modern Mantra devices need.
   const rdServicePorts = [11100, 11101, 11102];
-  const protocols = ['http', 'https'];
+  const protocols = ['https', 'http'];
 
   let lastErr: unknown = null;
 
@@ -226,7 +229,7 @@ async function captureBiometric(wadh: string = ''): Promise<BiometricData | null
            msg.includes('SSL') || msg.includes('Failed to fetch') ||
            msg.includes('NetworkError') || msg.includes('net::'))
         ) {
-          lastErr = new RDCertError();
+          lastErr = new RDCertError(port);
         } else {
           lastErr = err;
         }
@@ -1079,7 +1082,7 @@ const BiometricLogin = ({
 
   const checkDevice = useCallback(async () => {
     const rdServicePorts = [11100, 11101, 11102];
-    const protocols = ['http', 'https'];
+    const protocols = ['https', 'http'];
     for (const port of rdServicePorts) {
       for (const proto of protocols) {
         try {
@@ -1262,6 +1265,21 @@ const BiometricLogin = ({
             <CheckCircle2 className="w-4 h-4 inline mr-1" />
             {message}
           </p>
+        </div>
+      ) : message && message.includes('SSL certificate') ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
+          <p className="text-sm text-amber-800 font-semibold mb-2">
+            <AlertCircle className="w-4 h-4 inline mr-1" />
+            Mantra device SSL certificate not trusted
+          </p>
+          <ol className="text-sm text-amber-700 space-y-1.5 list-decimal list-inside">
+            <li>
+              Click this link → <a href="https://127.0.0.1:11100/rd/info" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">https://127.0.0.1:11100/rd/info</a>
+            </li>
+            <li>On the warning page, click <span className="font-semibold">Advanced</span></li>
+            <li>Click <span className="font-semibold">Proceed to 127.0.0.1 (unsafe)</span></li>
+            <li>Come back here and click <span className="font-semibold">Retry Authentication</span></li>
+          </ol>
         </div>
       ) : (
         <p className={`text-sm mb-6 ${
@@ -2278,9 +2296,18 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
       )}
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          <p className="text-red-700">{error}</p>
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          {error.includes('SSL certificate') ? (
+            <div className="text-red-700 text-sm">
+              <p className="font-semibold mb-1">Mantra device SSL certificate not trusted</p>
+              <p>
+                Open <a href="https://127.0.0.1:11100/rd/info" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold">https://127.0.0.1:11100/rd/info</a> in a new tab, click <span className="font-semibold">Advanced → Proceed to 127.0.0.1</span>, then retry.
+              </p>
+            </div>
+          ) : (
+            <p className="text-red-700">{error}</p>
+          )}
           <button
             onClick={() => setError(null)}
             className="ml-auto text-red-500 hover:text-red-700"
