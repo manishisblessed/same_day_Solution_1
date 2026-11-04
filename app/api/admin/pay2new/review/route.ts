@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(500)
 
-    const items = [
+    const items: any[] = [
       ...(direct || []).map((d: any) => ({
         request_id: d.request_id,
         owner: d.user_role === 'partner' ? 'partner' : 'retailer',
@@ -76,6 +76,9 @@ export async function GET(request: NextRequest) {
         reason: d.review_reason,
         created_at: d.created_at,
         product_name: d.product_name,
+        name: null as string | null,
+        _partnerId: d.user_role === 'partner' ? d.user_id : null,
+        _retailerId: d.user_role === 'partner' ? null : d.user_id,
       })),
       ...(partner || []).map((p: any) => ({
         request_id: p.reference_id,
@@ -84,6 +87,9 @@ export async function GET(request: NextRequest) {
         reason: (String(p.description || '').match(/ReviewRequired\(([^)]+)\)/) || [])[1] || 'review',
         created_at: p.created_at,
         product_name: 'BBPS-2 CC',
+        name: null as string | null,
+        _partnerId: p.partner_id,
+        _retailerId: null,
       })),
     ]
 
@@ -133,10 +139,38 @@ export async function GET(request: NextRequest) {
           reason: /FailedConfirmed/i.test(r.description || '') ? 'failed — auto-refund confirming' : 'unverified',
           created_at: r.created_at,
           product_name: 'BBPS-2 CC',
+          name: null as string | null,
+          _partnerId: r.partner_id,
+          _retailerId: null,
         })
       }
     } catch (e: any) {
       console.error('[Admin Pay2New Review] stuck-discovery error:', e?.message)
+    }
+
+    // ── RESOLVE OWNER NAMES ───────────────────────────────────────────────────
+    // Partners live in `partners` (keyed by id); retailers in `retailers` (keyed
+    // by partner_id). Batch-resolve both, then attach a display name per item.
+    try {
+      const partnerIds = Array.from(new Set(items.map((i) => i._partnerId).filter(Boolean)))
+      const retailerIds = Array.from(new Set(items.map((i) => i._retailerId).filter(Boolean)))
+      const nameMap = new Map<string, string>()
+      if (partnerIds.length) {
+        const { data } = await supabase.from('partners').select('id, name, business_name').in('id', partnerIds)
+        for (const p of data || []) nameMap.set(String((p as any).id), (p as any).business_name || (p as any).name || '')
+      }
+      if (retailerIds.length) {
+        const { data } = await supabase.from('retailers').select('partner_id, name').in('partner_id', retailerIds)
+        for (const r of data || []) nameMap.set(String((r as any).partner_id), (r as any).name || '')
+      }
+      for (const it of items) {
+        it.name = (it._partnerId && nameMap.get(it._partnerId)) || (it._retailerId && nameMap.get(it._retailerId)) || null
+        delete it._partnerId
+        delete it._retailerId
+      }
+    } catch (e: any) {
+      console.error('[Admin Pay2New Review] name-resolve error:', e?.message)
+      for (const it of items) { delete it._partnerId; delete it._retailerId }
     }
 
     items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())

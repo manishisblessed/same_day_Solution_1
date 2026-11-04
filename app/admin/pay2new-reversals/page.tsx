@@ -13,6 +13,7 @@ import { useToast } from '@/components/Toast'
 type HeldItem = {
   request_id: string
   owner: 'partner' | 'retailer' | 'partner_api'
+  name?: string | null
   amount: number
   reason: string
   created_at: string
@@ -281,7 +282,7 @@ export default function Pay2NewReversalsPage() {
                   <tr>
                     <th className="text-left px-3 py-3 font-medium">Created</th>
                     <th className="text-left px-3 py-3 font-medium">Request ID</th>
-                    <th className="text-left px-3 py-3 font-medium">Owner</th>
+                    <th className="text-left px-3 py-3 font-medium">User / Owner</th>
                     <th className="text-right px-3 py-3 font-medium">Amount</th>
                     <th className="text-left px-3 py-3 font-medium">Reason</th>
                     <th className="text-left px-3 py-3 font-medium">Vendor check</th>
@@ -298,7 +299,10 @@ export default function Pay2NewReversalsPage() {
                       <tr key={it.request_id} className="hover:bg-gray-50">
                         <td className="px-3 py-3 whitespace-nowrap text-gray-600">{fmtDate(it.created_at)}</td>
                         <td className="px-3 py-3 font-mono text-xs">{it.request_id}<div className="text-[10px] text-gray-400">{it.product_name}</div></td>
-                        <td className="px-3 py-3 capitalize">{it.owner.replace('_', ' ')}</td>
+                        <td className="px-3 py-3">
+                          <div className="font-medium text-gray-800">{it.name || '—'}</div>
+                          <div className="text-[10px] text-gray-400 capitalize">{it.owner.replace('_', ' ')}</div>
+                        </td>
                         <td className="px-3 py-3 text-right font-medium whitespace-nowrap">{fmtINR(it.amount)}</td>
                         <td className="px-3 py-3"><span className="inline-flex items-center gap-1 text-xs text-amber-700"><Clock className="w-3.5 h-3.5" />{it.reason}</span></td>
                         <td className="px-3 py-3">
