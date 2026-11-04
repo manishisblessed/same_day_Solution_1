@@ -1,6 +1,17 @@
+/**
+ * POST /api/partner/payout/verify
+ *
+ * Penny-drop account verification via eKYC Hub (penny-less endpoint).
+ * FREE — no wallet charge.
+ *
+ * Returns the bank-verified account holder name so the partner can
+ * confirm account details before registering via POST /accounts.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { verifyBankAccount } from '@/services/payout'
+import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
+import { isAccountVerificationEnabled, ACCOUNT_VERIFICATION_DISABLED_MESSAGE } from '@/lib/settings/account-verification'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,6 +39,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check global verification toggle (admin can disable during provider outages)
+    if (!(await isAccountVerificationEnabled())) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: 'SERVICE_UNAVAILABLE', message: ACCOUNT_VERIFICATION_DISABLED_MESSAGE },
+          is_valid: false,
+          verification_charges: 0,
+        },
+        { status: 503 }
+      )
+    }
+
     let body: any
     try {
       body = await request.json()
@@ -38,7 +62,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { accountNumber, ifscCode, bankName, bankId } = body
+    const { accountNumber, ifscCode } = body
+
     if (!accountNumber || !ifscCode) {
       return NextResponse.json(
         { success: false, error: { code: 'BAD_REQUEST', message: 'accountNumber and ifscCode are required' } },
@@ -46,35 +71,81 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const normalizedAccount = accountNumber.toString().replace(/\s+/g, '').trim()
+    const normalizedAccount = accountNumber.toString().replace(/\D/g, '').trim()
     const normalizedIfsc = ifscCode.toString().replace(/\s+/g, '').trim().toUpperCase()
 
-    const result = await verifyBankAccount({
-      accountNumber: normalizedAccount,
-      ifscCode: normalizedIfsc,
-      bankName: bankName?.trim() || undefined,
-      bankId: bankId ? parseInt(bankId) : undefined,
-    })
-
-    if (!result.success) {
+    if (!/^\d{9,18}$/.test(normalizedAccount)) {
       return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION_FAILED', message: result.error || 'Account validation failed' }, is_valid: false, verification_charges: 0 },
+        {
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invalid accountNumber — must be 9–18 digits' },
+          is_valid: false,
+          verification_charges: 0,
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalizedIfsc)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'Invalid ifscCode format (e.g. SBIN0001234)' },
+          is_valid: false,
+          verification_charges: 0,
+        },
+        { status: 400 }
+      )
+    }
+
+    const orderId = generateOrderId('PTNR_VFY')
+
+    let result: Awaited<ReturnType<typeof verifyBankPennyLess>>
+    try {
+      result = await verifyBankPennyLess(normalizedAccount, normalizedIfsc, orderId)
+    } catch (err: any) {
+      console.error('[Partner Payout Verify] eKYC Hub call failed:', err.message)
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Account verification service temporarily unavailable. Please try again later.',
+          },
+          is_valid: false,
+          verification_charges: 0,
+        },
+        { status: 503 }
+      )
+    }
+
+    if (result.status !== 'Success' || !result.nameAtBank) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: result.message || 'Account validation failed — check account number and IFSC code.',
+          },
+          is_valid: false,
+          verification_charges: 0,
+        },
         { status: 400 }
       )
     }
 
     return NextResponse.json({
       success: true,
-      is_valid: result.is_valid !== false,
-      account_holder_name: result.account_holder_name || null,
-      bank_name: result.bank_name,
-      branch_name: result.branch_name,
+      is_valid: true,
+      account_holder_name: result.nameAtBank,
+      bank_name: (body.bankName || '').trim() || normalizedIfsc.substring(0, 4).toUpperCase(),
+      branch_name: null,
       verification_charges: 0,
-      message: result.message || 'Account verified successfully',
-      reference_id: result.reference_id,
+      message: 'Account verified successfully via eKYC Hub',
+      reference_id: orderId,
     })
   } catch (error: any) {
-    console.error('[Partner Payout Verify] Error:', error)
+    console.error('[Partner Payout Verify] Unhandled error:', error)
     return NextResponse.json(
       { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
       { status: 500 }

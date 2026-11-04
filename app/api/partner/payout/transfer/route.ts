@@ -148,6 +148,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Normalize account + IFSC to match how they're stored in knteer_beneficiaries
+    const normalizedAccount = String(accountNumber).replace(/\D/g, '').trim()
+    const normalizedIfsc    = String(ifscCode).replace(/\s+/g, '').trim().toUpperCase()
+
     const supabase = getSupabase()
 
     // ── Scheme + charges ───────────────────────────────────────────────────
@@ -172,6 +176,32 @@ export async function POST(request: NextRequest) {
 
     const charges = baseCharge
     const totalRequired = amountNum + charges
+
+    // ── Beneficiary pre-registration check ────────────────────────────────
+    // Account must be registered via POST /api/partner/payout/accounts first.
+    // This also lets us use the bank-verified name when is_bank_verified = true.
+    const { data: registeredBene } = await supabase
+      .from('knteer_beneficiaries')
+      .select('id, bene_code, bene_name, bank_name, is_bank_verified, verified_name_at_bank')
+      .eq('retailer_id', partner.id)
+      .eq('account_number', normalizedAccount)
+      .eq('ifsc_code', normalizedIfsc)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (!registeredBene?.bene_code) {
+      if (idemKey) await finalizeIdempotencyKey({ scope: `${IDEM_SCOPE}:${partner.id}`, key: idemKey, status: 'failed' }).catch(() => {})
+      return NextResponse.json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_NOT_REGISTERED',
+          message: 'This account is not registered. Please register it via POST /api/partner/payout/accounts before transferring.',
+        },
+      }, { status: 400 })
+    }
+
+    // Use bank-verified name when available; fall back to partner-supplied name
+    const resolvedBeneName = registeredBene.verified_name_at_bank || registeredBene.bene_name || accountHolderName
 
     // ── Partner wallet balance check ───────────────────────────────────────
     const { data: walletBalance, error: balErr } = await (supabase as any).rpc('get_partner_wallet_balance', {
@@ -227,7 +257,7 @@ export async function POST(request: NextRequest) {
       .from('knteer_payout_transactions')
       .select('id, status, created_at')
       .eq('retailer_id', partner.id)
-      .eq('account_number', accountNumber)
+      .eq('account_number', normalizedAccount)
       .gte('created_at', cooldownCutoff)
       .eq('status', 'SUCCESS')
       .order('created_at', { ascending: false })
@@ -251,7 +281,7 @@ export async function POST(request: NextRequest) {
       .from('knteer_payout_transactions')
       .select('id, partner_trans_id, amount, created_at')
       .eq('retailer_id', partner.id)
-      .eq('account_number', accountNumber)
+      .eq('account_number', normalizedAccount)
       .gte('created_at', pendingCutoff)
       .eq('status', 'PENDING')
       .order('created_at', { ascending: false })
@@ -281,10 +311,10 @@ export async function POST(request: NextRequest) {
       .insert({
         retailer_id: partner.id,
         user_role: 'partner',
-        account_number: accountNumber,
-        ifsc_code: ifscCode,
-        account_holder_name: accountHolderName,
-        bank_name: bankName,
+        account_number: normalizedAccount,
+        ifsc_code: normalizedIfsc,
+        account_holder_name: resolvedBeneName,
+        bank_name: registeredBene.bank_name || bankName,
         email: email || '',
         mobile: String(mobile),
         amount: amountNum,
@@ -294,7 +324,7 @@ export async function POST(request: NextRequest) {
         partner_trans_id: partnerTransId,
         status: 'PENDING',
         remarks: remarks || null,
-        narration: remarks || `Partner payout to ${accountHolderName}`,
+        narration: remarks || `Partner payout to ${resolvedBeneName}`,
         scheme_id: schemeId,
         scheme_name: schemeName,
         distributor_id: null,
@@ -313,7 +343,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Debit partner wallet ───────────────────────────────────────────────
-    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''} to ${accountHolderName} (${accountNumber.slice(-4)})`
+    const debitDesc = `Knteer payout ₹${amountNum}${charges > 0 ? ` + charge ₹${charges}` : ''} to ${resolvedBeneName} (${normalizedAccount.slice(-4)})`
     const { error: debitError } = await (supabase as any).rpc('debit_partner_wallet', {
       p_partner_id: partner.id,
       p_amount: totalRequired,
@@ -344,10 +374,10 @@ export async function POST(request: NextRequest) {
       beneDetails: {
         email: email || `${partner.id}@knteer.payout`,
         mobile: String(mobile),
-        beneName: accountHolderName,
-        accountNumber,
-        bankName,
-        ifsc: ifscCode,
+        beneName: resolvedBeneName,
+        accountNumber: normalizedAccount,
+        bankName: registeredBene.bank_name || bankName,
+        ifsc: normalizedIfsc,
       },
       amount: amountNum,
       paymentMode: paymentMode as 'IMPS' | 'NEFT',
@@ -433,9 +463,10 @@ export async function POST(request: NextRequest) {
       charges,
       total_debited: totalRequired,
       payment_mode: paymentMode,
-      account_number: accountNumber.replace(/\d(?=\d{4})/g, '*'),
-      account_holder_name: accountHolderName,
-      bank_name: bankName,
+      account_number: normalizedAccount.replace(/\d(?=\d{4})/g, '*'),
+      account_holder_name: resolvedBeneName,
+      bank_name: registeredBene.bank_name || bankName,
+      is_bank_verified: registeredBene.is_bank_verified ?? false,
       remarks: remarks || null,
       created_at: now,
       created_at_ist: toIST(now),
