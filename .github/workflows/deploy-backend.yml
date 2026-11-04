@@ -5,9 +5,13 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# A newer push must supersede an older/stuck deploy instead of queuing behind
+# it. Deploys are idempotent force-syncs to origin/main, so cancelling an
+# in-flight run and letting the latest commit win is always safe and prevents
+# the "Queued forever behind a hung SSH run" problem.
 concurrency:
   group: deploy-backend
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
