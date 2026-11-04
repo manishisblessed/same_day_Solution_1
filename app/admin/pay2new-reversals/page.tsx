@@ -14,6 +14,9 @@ type HeldItem = {
   request_id: string
   owner: 'partner' | 'retailer' | 'partner_api'
   name?: string | null
+  cc_card?: string | null
+  cc_mobile?: string | null
+  cc_name?: string | null
   amount: number
   reason: string
   created_at: string
@@ -283,6 +286,7 @@ export default function Pay2NewReversalsPage() {
                     <th className="text-left px-3 py-3 font-medium">Created</th>
                     <th className="text-left px-3 py-3 font-medium">Request ID</th>
                     <th className="text-left px-3 py-3 font-medium">User / Owner</th>
+                    <th className="text-left px-3 py-3 font-medium">Card / Customer</th>
                     <th className="text-right px-3 py-3 font-medium">Amount</th>
                     <th className="text-left px-3 py-3 font-medium">Reason</th>
                     <th className="text-left px-3 py-3 font-medium">Vendor check</th>
@@ -291,7 +295,7 @@ export default function Pay2NewReversalsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 && !loading && (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400 flex-col"><CheckCircle className="w-6 h-6 text-green-500 inline mb-1" /><div>No held transactions. Nothing awaiting manual review.</div></td></tr>
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400 flex-col"><CheckCircle className="w-6 h-6 text-green-500 inline mb-1" /><div>No held transactions. Nothing awaiting manual review.</div></td></tr>
                   )}
                   {items.map((it) => {
                     const chk = checks[it.request_id]
@@ -302,6 +306,10 @@ export default function Pay2NewReversalsPage() {
                         <td className="px-3 py-3">
                           <div className="font-medium text-gray-800">{it.name || '—'}</div>
                           <div className="text-[10px] text-gray-400 capitalize">{it.owner.replace('_', ' ')}</div>
+                        </td>
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          <div className="font-mono text-xs text-gray-700">{it.cc_card || '—'}</div>
+                          <div className="text-[10px] text-gray-500">{it.cc_name || ''}{it.cc_mobile ? `${it.cc_name ? ' · ' : ''}${it.cc_mobile}` : ''}</div>
                         </td>
                         <td className="px-3 py-3 text-right font-medium whitespace-nowrap">{fmtINR(it.amount)}</td>
                         <td className="px-3 py-3"><span className="inline-flex items-center gap-1 text-xs text-amber-700"><Clock className="w-3.5 h-3.5" />{it.reason}</span></td>

@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     // Direct flow: pay2new_transactions flagged review_required (money held).
     const { data: direct } = await supabase
       .from('pay2new_transactions')
-      .select('request_id, user_id, user_role, amount, charge, total_debit, status, review_reason, created_at, product_name')
+      .select('request_id, user_id, user_role, amount, charge, total_debit, status, review_reason, created_at, product_name, customer_number, customer_name, card_number, card_last4')
       .eq('review_required', true)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
@@ -68,6 +68,17 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(500)
 
+    // Extract embedded "Key:value" tokens from a ledger description, and mask a
+    // card number to last-4 only (full PAN is never surfaced in the UI).
+    const pickMeta = (d: string | null | undefined, key: string) => {
+      const m = String(d || '').match(new RegExp(`${key}:\\s*([^|]+)`))
+      return m ? m[1].trim() : null
+    }
+    const maskCard = (v: string | null | undefined) => {
+      const digits = String(v || '').replace(/\D/g, '')
+      return digits ? `****${digits.slice(-4)}` : null
+    }
+
     const items: any[] = [
       ...(direct || []).map((d: any) => ({
         request_id: d.request_id,
@@ -77,6 +88,9 @@ export async function GET(request: NextRequest) {
         created_at: d.created_at,
         product_name: d.product_name,
         name: null as string | null,
+        cc_card: d.card_last4 ? `****${String(d.card_last4).slice(-4)}` : maskCard(d.card_number),
+        cc_mobile: d.customer_number || null,
+        cc_name: d.customer_name || null,
         _partnerId: d.user_role === 'partner' ? d.user_id : null,
         _retailerId: d.user_role === 'partner' ? null : d.user_id,
       })),
@@ -88,6 +102,9 @@ export async function GET(request: NextRequest) {
         created_at: p.created_at,
         product_name: 'BBPS-2 CC',
         name: null as string | null,
+        cc_card: maskCard(pickMeta(p.description, 'Card')),
+        cc_mobile: pickMeta(p.description, 'Mob'),
+        cc_name: pickMeta(p.description, 'Name'),
         _partnerId: p.partner_id,
         _retailerId: null,
       })),
@@ -140,6 +157,9 @@ export async function GET(request: NextRequest) {
           created_at: r.created_at,
           product_name: 'BBPS-2 CC',
           name: null as string | null,
+          cc_card: maskCard(pickMeta(r.description, 'Card')),
+          cc_mobile: pickMeta(r.description, 'Mob'),
+          cc_name: pickMeta(r.description, 'Name'),
           _partnerId: r.partner_id,
           _retailerId: null,
         })
