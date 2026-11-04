@@ -76,6 +76,7 @@ const sidebarItems: SidebarItem[] = [
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
   { id: 'reversals', label: 'Reversals', icon: RotateCcw, href: '/admin/reversals' },
   { id: 'pay2new-reversals', label: 'BBPS-2 Reversals', icon: RotateCcw, href: '/admin/pay2new-reversals' },
+  { id: 'pay2new-banks', label: 'Pay2New Banks', icon: CreditCard, href: '/admin/pay2new-banks' },
   { id: 'credentials', label: 'Credentials', icon: KeyRound, href: '/admin/credentials' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },
 ]

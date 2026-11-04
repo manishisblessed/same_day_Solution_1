@@ -79,8 +79,8 @@ export async function getOrCreateBeneCode(
 
   const beneCode = d.data.beneCode
 
-  // 3. Persist to cache (best-effort, upsert by account+ifsc)
-  supabase
+  // 3. Persist to cache (awaited — must succeed so future lookups find the beneCode)
+  const { error: upsertError } = await supabase
     .from('knteer_beneficiaries')
     .upsert(
       {
@@ -105,9 +105,10 @@ export async function getOrCreateBeneCode(
       },
       { onConflict: 'retailer_id,account_number,ifsc_code' }
     )
-    .then(({ error }) => {
-      if (error) console.error('[Knteer] bene cache upsert failed:', error.message)
-    })
+
+  if (upsertError) {
+    console.error('[Knteer] bene cache upsert failed:', upsertError.message)
+  }
 
   console.log('[Knteer] beneCode registered:', { beneCode, accountNumber: accountNumber.slice(-4) })
   return { success: true, beneCode, isNew: true }

@@ -8,12 +8,14 @@ import {
   getPay2NewProductList,
   PAY2NEW_CC_SERVICE_ID,
 } from '@/services/pay2new'
+import { getEnabledCcBillerCodes } from '@/lib/pay2new/cc-billers'
 
 export const dynamic = 'force-dynamic'
 
-// Billers that don't support Cash payment mode — Pay2New can't process them.
-// These are hidden from the Credit Card tab until BBPS fallback is fully stable.
-const PAY2NEW_CC_BLOCKED_NAMES = new Set([
+// Legacy fallback blocklist — used ONLY when the pay2new_cc_billers table has
+// not yet been seeded by admin. Once admin clicks "Refresh from Pay2New" on the
+// Pay2New Banks page, the DB-driven allowlist takes over and this list is ignored.
+const LEGACY_CC_BLOCKED_NAMES = new Set([
   'yes bank credit card',
   'rbl bank credit card',
   'kotak mahindra bank credit card',
@@ -62,7 +64,14 @@ export async function GET(request: NextRequest) {
     let billers = (result as any).billers || (result as any).products || []
 
     if (serviceId === PAY2NEW_CC_SERVICE_ID) {
-      billers = billers.filter((b: any) => !PAY2NEW_CC_BLOCKED_NAMES.has((b.product_name || '').toLowerCase()))
+      // DB-driven allowlist: only enabled banks are shown.
+      // Falls back to legacy blocklist when the table has not been seeded yet.
+      const enabledCodes = await getEnabledCcBillerCodes()
+      if (enabledCodes !== null) {
+        billers = billers.filter((b: any) => enabledCodes.has(b.product_code))
+      } else {
+        billers = billers.filter((b: any) => !LEGACY_CC_BLOCKED_NAMES.has((b.product_name || '').toLowerCase()))
+      }
     }
 
     if (!result.success) {

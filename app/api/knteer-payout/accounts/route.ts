@@ -184,6 +184,118 @@ export async function POST(request: NextRequest) {
       }))
     }
 
+    // If already registered (unverified, has bene_code) and user wants to UPGRADE to verified:
+    // Skip Knteer add-bene (already done) — just run eKYC and update verification columns.
+    if (existing?.bene_code && registration_type === 'verify') {
+      // eKYC Penny Less to verify the account
+      const upgradeOrderId = generateOrderId('KNTEER_UPG')
+      let upgradeEkyc: Awaited<ReturnType<typeof verifyBankPennyLess>>
+      try {
+        upgradeEkyc = await verifyBankPennyLess(account_number, cleanIfsc, upgradeOrderId)
+      } catch (ekycErr: any) {
+        console.error('[Knteer Accounts] Upgrade eKYC call failed:', ekycErr.message)
+        return addCorsHeaders(request, NextResponse.json({
+          success: false,
+          error: 'Bank verification service is temporarily unavailable. Please try again later.',
+        }, { status: 503 }))
+      }
+
+      if (upgradeEkyc.status !== 'Success' || !upgradeEkyc.nameAtBank) {
+        return addCorsHeaders(request, NextResponse.json({
+          success: false,
+          error: upgradeEkyc.message || 'Bank account verification failed. Please check the account number and IFSC code.',
+          error_code: 'BANK_VERIFICATION_FAILED',
+        }, { status: 400 }))
+      }
+
+      // Check wallet balance
+      let upgBal = 0
+      if (user.role === 'partner') {
+        const { data } = await (supabaseAdmin as any).rpc('get_partner_wallet_balance', { p_partner_id: user.partner_id })
+        upgBal = data || 0
+      } else {
+        const { data } = await (supabaseAdmin as any).rpc('get_wallet_balance_v2', { p_user_id: user.partner_id, p_wallet_type: 'primary' })
+        upgBal = data || 0
+      }
+      if (upgBal < VERIFICATION_FEE) {
+        return addCorsHeaders(request, NextResponse.json({
+          success: false,
+          error: `Insufficient wallet balance. Verification fee is ₹${VERIFICATION_FEE}. Current balance: ₹${upgBal}`,
+        }, { status: 400 }))
+      }
+
+      // Debit fee
+      const upgRef = `K1_UPG_${user.partner_id}_${Date.now()}`
+      if (user.role === 'partner') {
+        const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
+          p_partner_id: user.partner_id, p_amount: VERIFICATION_FEE,
+          p_description: `Settlement-1 bank verification fee ₹${VERIFICATION_FEE} for ${account_number} (${cleanIfsc})`,
+          p_reference_id: upgRef, p_service_type: 'knteer_payout',
+        })
+        if (error) return addCorsHeaders(request, NextResponse.json({ success: false, error: 'Failed to debit verification fee.' }, { status: 500 }))
+      } else {
+        const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+          p_user_id: user.partner_id, p_user_role: user.role,
+          p_wallet_type: 'primary', p_fund_category: 'service',
+          p_service_type: 'knteer_payout', p_tx_type: 'ACCOUNT_VERIFICATION_CHARGE',
+          p_credit: 0, p_debit: VERIFICATION_FEE, p_reference_id: upgRef,
+          p_transaction_id: null, p_status: 'completed',
+          p_remarks: `Settlement-1 bank verification fee ₹${VERIFICATION_FEE} for ${account_number} (${cleanIfsc})`,
+        })
+        if (error) return addCorsHeaders(request, NextResponse.json({ success: false, error: 'Failed to debit verification fee.' }, { status: 500 }))
+      }
+
+      // Revenue credit
+      const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
+      const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
+      if (revenueUserId) {
+        try {
+          await (supabaseAdmin as any).rpc('add_ledger_entry', {
+            p_user_id: revenueUserId, p_user_role: revenueUserRole,
+            p_wallet_type: 'primary', p_fund_category: 'revenue',
+            p_service_type: 'knteer_payout', p_tx_type: 'COMPANY_REVENUE',
+            p_credit: VERIFICATION_FEE, p_debit: 0,
+            p_reference_id: `REV_${upgRef}`, p_transaction_id: null, p_status: 'completed',
+            p_remarks: `Settlement-1 verification revenue ₹${VERIFICATION_FEE} from ${user.partner_id}`,
+          })
+        } catch (e: any) { console.error('[Knteer Accounts] Upgrade revenue error:', e.message) }
+      }
+
+      // Update the existing DB record with verification data
+      const upgNow = new Date().toISOString()
+      await supabaseAdmin
+        .from('knteer_beneficiaries')
+        .update({
+          is_bank_verified: true,
+          verified_at: upgNow,
+          verified_name_at_bank: upgradeEkyc.nameAtBank,
+          verification_utr: upgradeEkyc.utr || null,
+          verification_orderid: upgradeOrderId,
+          bene_name: upgradeEkyc.nameAtBank,
+          updated_at: upgNow,
+        })
+        .eq('id', existing.id)
+
+      return addCorsHeaders(request, NextResponse.json({
+        success: true,
+        registration_type: 'verify',
+        charge_deducted: VERIFICATION_FEE,
+        charge_base: CHARGE_BASE,
+        charge_gst: CHARGE_GST,
+        message: `Account verified successfully. ₹${VERIFICATION_FEE} deducted from wallet.`,
+        account: {
+          id: existing.id,
+          account_number,
+          ifsc_code: cleanIfsc,
+          account_holder_name: upgradeEkyc.nameAtBank,
+          bank_name: derivedBankName,
+          bene_code: existing.bene_code,
+          is_registered: true,
+          is_bank_verified: true,
+        },
+      }))
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // PATH A — FREE REGISTRATION (no eKYC, disclaimer required)
     // ══════════════════════════════════════════════════════════════════════
