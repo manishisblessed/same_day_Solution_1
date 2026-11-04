@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabase()
     const { data, error } = await supabase
       .from('knteer_beneficiaries')
-      .select('id, account_number, ifsc_code, bene_name, bank_name, mobile, bene_code, created_at')
+      .select('id, account_number, ifsc_code, bene_name, bank_name, mobile, bene_code, is_bank_verified, verified_name_at_bank, created_at')
       .eq('retailer_id', partner.id)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
@@ -70,10 +70,11 @@ export async function GET(request: NextRequest) {
       id:                  a.id,
       account_number:      (a.account_number as string).replace(/\d(?=\d{4})/g, '*'),
       ifsc_code:           a.ifsc_code,
-      account_holder_name: a.bene_name,
+      account_holder_name: a.verified_name_at_bank || a.bene_name,
       bank_name:           a.bank_name || a.ifsc_code?.substring(0, 4),
       mobile:              a.mobile,
       is_registered:       true,
+      is_bank_verified:    a.is_bank_verified ?? false,
       created_at:          a.created_at,
     }))
 

@@ -79,7 +79,7 @@ Fetch POS transactions with filters and pagination.
   "status": "CAPTURED",
   "terminal_id": "96192813",
   "payment_mode": "CARD",
-  "settlement_status": "PENDING",
+  "txn_id": null,
   "page": 1,
   "page_size": 50
 }
@@ -87,14 +87,23 @@ Fetch POS transactions with filters and pagination.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `date_from` | ISO date | ✅ | Start date (max 90 days range) |
-| `date_to` | ISO date | ✅ | End date |
+| `date_from` | ISO date | ✅* | Start date (max 90 days range) |
+| `date_to` | ISO date | ✅* | End date |
+| `txn_id` | string \| string[] | ❌ | Filter by one or more transaction IDs (max 100). When provided, `date_from`/`date_to` become optional. |
 | `status` | string | ❌ | AUTHORIZED, CAPTURED, FAILED, REFUNDED, VOIDED |
 | `terminal_id` | string | ❌ | Filter by terminal |
 | `payment_mode` | string | ❌ | CARD, UPI, NFC |
-| `settlement_status` | string | ❌ | PENDING, SETTLED, FAILED |
 | `page` | number | ❌ | Page number (default: 1) |
 | `page_size` | number | ❌ | Records per page (default: 50, max: 100) |
+
+> *`date_from` and `date_to` are required **unless** `txn_id` is provided.
+
+**Example — search by multiple transaction IDs:**
+```json
+{
+  "txn_id": ["PL_7345641475", "PL_7345641476", "PL_7345641477"]
+}
+```
 
 #### Response
 

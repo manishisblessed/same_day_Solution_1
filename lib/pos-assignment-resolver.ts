@@ -253,12 +253,32 @@ export async function resolveTransactionAssignments(
         assignedName = nameFromRole(match.assigned_to, match.assigned_to_role)
         assignedType = match.assigned_to_role
       } else {
-        // No exact window: use latest active or most recent record
+        // No exact window match.
         const latestActive = assignments.find(a => !a.to)
-        const fallback = latestActive || assignments[0]
-        if (fallback) {
-          assignedName = nameFromRole(fallback.assigned_to, fallback.assigned_to_role)
-          assignedType = fallback.assigned_to_role
+        if (latestActive) {
+          // Machine is currently assigned but txn predates that assignment.
+          // Leave unassigned here; pos_machines fallback (B) handles current state.
+        } else {
+          // All assignments have a returned_date — machine has been fully returned.
+          // Only attribute the txn to a past holder if it occurred BEFORE or ON the
+          // latest return date. If the txn is AFTER the latest return, the machine
+          // was in stock at that time → no assignment.
+          const latestReturnDate = assignments.reduce<Date | null>((max, a) => {
+            if (!a.to) return max
+            return max === null || a.to > max ? a.to : max
+          }, null)
+
+          if (!latestReturnDate || txTime <= latestReturnDate) {
+            // Transaction predates the final return: find the most recent
+            // assignment whose window started at or before txTime.
+            const nearestAssignment = assignments.find(a => txTime >= a.from)
+            if (nearestAssignment) {
+              assignedName = nameFromRole(nearestAssignment.assigned_to, nearestAssignment.assigned_to_role)
+              assignedType = nearestAssignment.assigned_to_role
+            }
+            // If txTime predates all assignment starts → genuinely pre-history, leave null.
+          }
+          // else: txTime > latestReturnDate → machine was in stock → no assignment
         }
       }
     }

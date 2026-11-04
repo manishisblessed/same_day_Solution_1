@@ -99,52 +99,83 @@ export async function POST(request: NextRequest) {
       status,
       terminal_id,
       payment_mode,
+      txn_id,
       page = 1,
       page_size = 50,
     } = body
 
-    // Validate required date filters
-    if (!date_from || !date_to) {
+    // Normalize txn_id to array (accepts string or string[])
+    let txnIdFilter: string[] | null = null
+    if (txn_id !== undefined && txn_id !== null) {
+      const raw = Array.isArray(txn_id) ? txn_id : [txn_id]
+      if (raw.length === 0 || raw.some((v: any) => typeof v !== 'string' || !v.trim())) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'txn_id must be a non-empty string or array of non-empty strings' },
+          },
+          { status: 400 }
+        )
+      }
+      if (raw.length > 100) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'txn_id array cannot exceed 100 items' },
+          },
+          { status: 400 }
+        )
+      }
+      txnIdFilter = raw.map((v: string) => v.trim())
+    }
+
+    // date_from / date_to required only when txn_id filter is not provided
+    if (!txnIdFilter && (!date_from || !date_to)) {
       return NextResponse.json(
         {
           success: false,
-          error: { code: 'BAD_REQUEST', message: 'date_from and date_to are required' },
+          error: { code: 'BAD_REQUEST', message: 'date_from and date_to are required (or provide txn_id to search by transaction ID)' },
         },
         { status: 400 }
       )
     }
 
-    const dateFrom = new Date(date_from)
-    const dateTo = new Date(date_to)
+    let dateFrom: Date | null = null
+    let dateTo: Date | null = null
 
-    if (isNaN(dateFrom.getTime()) || isNaN(dateTo.getTime())) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'BAD_REQUEST', message: 'Invalid date format. Use ISO 8601 (e.g., 2026-02-16T00:00:00.000Z)' },
-        },
-        { status: 400 }
-      )
-    }
+    if (date_from || date_to) {
+      dateFrom = new Date(date_from)
+      dateTo = new Date(date_to)
 
-    const daysDiff = (dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24)
-    if (daysDiff > 90) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'BAD_REQUEST', message: 'Date range cannot exceed 90 days' },
-        },
-        { status: 400 }
-      )
-    }
-    if (daysDiff < 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'BAD_REQUEST', message: 'date_from must be before date_to' },
-        },
-        { status: 400 }
-      )
+      if (isNaN(dateFrom.getTime()) || isNaN(dateTo.getTime())) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'Invalid date format. Use ISO 8601 (e.g., 2026-02-16T00:00:00.000Z)' },
+          },
+          { status: 400 }
+        )
+      }
+
+      const daysDiff = (dateTo.getTime() - dateFrom.getTime()) / (1000 * 60 * 60 * 24)
+      if (daysDiff > 90) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'Date range cannot exceed 90 days' },
+          },
+          { status: 400 }
+        )
+      }
+      if (daysDiff < 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: { code: 'BAD_REQUEST', message: 'date_from must be before date_to' },
+          },
+          { status: 400 }
+        )
+      }
     }
 
     // Validate optional filters
@@ -269,10 +300,14 @@ export async function POST(request: NextRequest) {
       .from('pos_transactions')
       .select('*', { count: 'exact' })
       .eq('partner_id', partner.id)
-      .gte('txn_time', dateFrom.toISOString())
-      .lte('txn_time', dateTo.toISOString())
       .order('txn_time', { ascending: false })
 
+    if (dateFrom && dateTo) {
+      ptQuery = ptQuery.gte('txn_time', dateFrom.toISOString()).lte('txn_time', dateTo.toISOString())
+    }
+    if (txnIdFilter) {
+      ptQuery = ptQuery.in('razorpay_txn_id', txnIdFilter)
+    }
     if (status) {
       ptQuery = ptQuery.eq('status', status.toUpperCase())
     }
@@ -293,10 +328,14 @@ export async function POST(request: NextRequest) {
       .from('razorpay_pos_transactions')
       .select('*', { count: 'exact' })
       .or(orConditions.join(','))
-      .gte('transaction_time', dateFrom.toISOString())
-      .lte('transaction_time', dateTo.toISOString())
       .order('transaction_time', { ascending: false, nullsFirst: false })
 
+    if (dateFrom && dateTo) {
+      rptQuery = rptQuery.gte('transaction_time', dateFrom.toISOString()).lte('transaction_time', dateTo.toISOString())
+    }
+    if (txnIdFilter) {
+      rptQuery = rptQuery.in('txn_id', txnIdFilter)
+    }
     if (status) {
       const displayStatus = status.toUpperCase() === 'CAPTURED' ? 'SUCCESS' : status.toUpperCase()
       rptQuery = rptQuery.eq('display_status', displayStatus)

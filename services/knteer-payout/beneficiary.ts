@@ -19,6 +19,14 @@ export interface BeneDetails {
   accountNumber: string
   bankName: string
   ifsc: string
+  // Verification metadata (optional — set by accounts route)
+  isBankVerified?: boolean
+  verifiedAt?: string
+  verifiedNameAtBank?: string
+  verificationUtr?: string
+  verificationOrderid?: string
+  disclaimerAccepted?: boolean
+  disclaimerAcceptedAt?: string
 }
 
 /**
@@ -86,6 +94,14 @@ export async function getOrCreateBeneCode(
         mobile,
         is_active: true,
         updated_at: new Date().toISOString(),
+        // Verification metadata
+        ...(details.isBankVerified !== undefined && { is_bank_verified: details.isBankVerified }),
+        ...(details.verifiedAt && { verified_at: details.verifiedAt }),
+        ...(details.verifiedNameAtBank && { verified_name_at_bank: details.verifiedNameAtBank }),
+        ...(details.verificationUtr && { verification_utr: details.verificationUtr }),
+        ...(details.verificationOrderid && { verification_orderid: details.verificationOrderid }),
+        ...(details.disclaimerAccepted !== undefined && { disclaimer_accepted: details.disclaimerAccepted }),
+        ...(details.disclaimerAcceptedAt && { disclaimer_accepted_at: details.disclaimerAcceptedAt }),
       },
       { onConflict: 'retailer_id,account_number,ifsc_code' }
     )

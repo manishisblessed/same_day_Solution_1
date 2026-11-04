@@ -55,6 +55,8 @@ interface KnteerAccount {
   bene_code?: string
   mobile?: string
   is_registered: boolean
+  is_bank_verified: boolean
+  disclaimer_accepted?: boolean
 }
 
 interface KnteerPayoutTransferProps {
@@ -79,14 +81,17 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
   const [selectedAccount, setSelectedAccount] = useState<KnteerAccount | null>(null)
 
   // Add account state
+  const [addAccountMode, setAddAccountMode] = useState<null | 'register' | 'verify'>(null)
   const [newAccNumber, setNewAccNumber] = useState('')
   const [newConfirmAcc, setNewConfirmAcc] = useState('')
   const [newIfsc, setNewIfsc] = useState('')
   const [newBeneName, setNewBeneName] = useState('')
   const [newContactMobile, setNewContactMobile] = useState('')
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [verifyResult, setVerifyResult] = useState<any>(null)
   const [showCelebration, setShowCelebration] = useState(false)
+  const [celebrationType, setCelebrationType] = useState<'register' | 'verify'>('register')
   const [celebrationCountdown, setCelebrationCountdown] = useState(3)
   const [showNoAccountModal, setShowNoAccountModal] = useState(false)
 
@@ -164,31 +169,46 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
     finally { setLoadingAccounts(false) }
   }, [])
 
-  const handleAddAccount = async () => {
+  const resetAddAccountForm = () => {
+    setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc('')
+    setNewBeneName(''); setNewContactMobile(''); setDisclaimerAccepted(false)
+    setVerifyResult(null); setError(null)
+  }
+
+  const handleAddAccount = async (type: 'register' | 'verify') => {
     if (!newAccNumber || newAccNumber.length < 9) return setError('Enter a valid account number (min 9 digits)')
     if (newAccNumber !== newConfirmAcc) return setError('Account numbers do not match')
     if (!newIfsc || !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(newIfsc)) return setError('Enter a valid IFSC code')
-    const cleanedName = newBeneName.trim().replace(/\s+/g, ' ').trim()
-    if (cleanedName.length < 3) return setError('Account holder name must be at least 3 characters')
     if (!newContactMobile || !/^[6-9]\d{9}$/.test(newContactMobile)) return setError('Enter a valid 10-digit mobile number')
+    if (type === 'register') {
+      const cleanedName = newBeneName.trim().replace(/\s+/g, ' ')
+      if (cleanedName.length < 3) return setError('Account holder name must be at least 3 characters')
+      if (!disclaimerAccepted) return setError('Please accept the disclaimer to proceed with free registration')
+    }
     setError(null)
     setVerifying(true)
     setVerifyResult(null)
     try {
+      const body: Record<string, any> = {
+        account_number: newAccNumber,
+        ifsc_code: newIfsc.toUpperCase(),
+        mobile: newContactMobile,
+        email: user?.email || '',
+        registration_type: type,
+      }
+      if (type === 'register') {
+        body.account_holder_name = newBeneName.trim().replace(/\s+/g, ' ')
+        body.disclaimer_accepted = true
+      }
       const res = await apiFetch('/api/knteer-payout/accounts', {
         method: 'POST',
-        body: JSON.stringify({
-          account_number: newAccNumber,
-          ifsc_code: newIfsc.toUpperCase(),
-          account_holder_name: cleanedName,
-          mobile: newContactMobile,
-          email: user?.email || '',
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (data.success) {
         fetchAccounts()
-        setNewAccNumber(''); setNewConfirmAcc(''); setNewIfsc(''); setNewBeneName(''); setNewContactMobile('')
+        resetAddAccountForm()
+        setCelebrationType(type)
         setShowCelebration(true)
         setCelebrationCountdown(3)
       } else {
@@ -200,7 +220,11 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
 
   useEffect(() => {
     if (!showCelebration) return
-    if (celebrationCountdown <= 0) { setShowCelebration(false); setVerifyResult(null); setActiveView('home'); return }
+    if (celebrationCountdown <= 0) {
+      setShowCelebration(false); setVerifyResult(null)
+      setAddAccountMode(null); setActiveView('home')
+      return
+    }
     const t = setTimeout(() => setCelebrationCountdown(c => c - 1), 1000)
     return () => clearTimeout(t)
   }, [showCelebration, celebrationCountdown])
@@ -599,13 +623,16 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Add Bank Account</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Register via Knteer &amp; save to your beneficiary list
+                  Free registration or ₹4.72 bank verification
                 </p>
-                <div className="mt-4 flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-semibold">
-                    ₹4.72
+                <div className="mt-4 flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
+                    Free
                   </span>
-                  <span className="text-xs text-gray-400">One-time verification fee (₹4 + GST)</span>
+                  <span className="text-xs text-gray-400">or</span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+                    ₹4.72 Verified
+                  </span>
                 </div>
               </div>
             </motion.button>
@@ -637,7 +664,9 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <BadgeCheck className="w-4 h-4 text-emerald-500" />
+                      {acct.is_bank_verified
+                        ? <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-full font-medium"><ShieldCheck className="w-3 h-3" /> Verified</span>
+                        : <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full font-medium"><ShieldAlert className="w-3 h-3" /> Unverified</span>}
                       <button onClick={() => handleDeleteAccount(acct.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -788,48 +817,217 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
       {/* ─── ADD ACCOUNT VIEW ──────────────────────────────────────────────── */}
       {activeView === 'add-account' && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <button onClick={() => { setActiveView('home'); setError(null); setVerifyResult(null) }} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 mb-4">
-            <ArrowLeft className="w-4 h-4" /> Back
+          <button
+            onClick={() => {
+              if (addAccountMode) { setAddAccountMode(null); resetAddAccountForm() }
+              else { setActiveView('home'); setError(null) }
+            }}
+            className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" /> {addAccountMode ? 'Back to options' : 'Back'}
           </button>
 
+          {/* ── Celebration screen ── */}
           {showCelebration ? (
             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-12">
-              <div className="text-6xl mb-4">🎉</div>
-              <h3 className="text-xl font-bold text-emerald-600 mb-2">Account Verified!</h3>
-              <p className="text-sm text-gray-500">Bank confirmed the account. Redirecting in {celebrationCountdown}s...</p>
+              <div className="text-6xl mb-4">{celebrationType === 'verify' ? '🎉' : '✅'}</div>
+              <h3 className="text-xl font-bold text-emerald-600 mb-2">
+                {celebrationType === 'verify' ? 'Account Bank-Verified!' : 'Account Registered!'}
+              </h3>
+              <p className="text-sm text-gray-500 mb-2">
+                {celebrationType === 'verify'
+                  ? 'Bank confirmed the account holder name. You can now transfer funds.'
+                  : 'Account saved. You can transfer funds — note this account is unverified.'}
+              </p>
+              <p className="text-xs text-gray-400">Redirecting in {celebrationCountdown}s...</p>
             </motion.div>
+
+          ) : addAccountMode === null ? (
+            /* ── Mode selection: two cards ── */
+            <div className="space-y-4">
+              <div className="mb-2">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Add Bank Account</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Choose how you want to add this account</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Card 1 — Free Registration */}
+                <motion.button
+                  whileHover={{ y: -3 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => { setAddAccountMode('register'); setError(null) }}
+                  className="group text-left relative bg-white dark:bg-gray-900 rounded-2xl border-2 border-gray-200 dark:border-gray-700 hover:border-emerald-400 dark:hover:border-emerald-500 shadow-sm hover:shadow-lg transition-all p-5 overflow-hidden"
+                >
+                  <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-emerald-400/10 blur-xl group-hover:scale-150 transition-transform duration-700" />
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <ShieldAlert className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-bold text-gray-900 dark:text-white">Register Account</h4>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-bold">FREE</span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                      Save account without bank verification. You accept responsibility for transfer accuracy.
+                    </p>
+                    <div className="mt-3 flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+                      No charges <ChevronRight className="w-3 h-3" />
+                    </div>
+                  </div>
+                </motion.button>
+
+                {/* Card 2 — Paid Verification */}
+                <motion.button
+                  whileHover={{ y: -3 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => { setAddAccountMode('verify'); setError(null) }}
+                  className="group text-left relative bg-white dark:bg-gray-900 rounded-2xl border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 shadow-sm hover:shadow-lg transition-all p-5 overflow-hidden"
+                >
+                  <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-blue-400/10 blur-xl group-hover:scale-150 transition-transform duration-700" />
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                      <ShieldCheck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-bold text-gray-900 dark:text-white">Verify Account</h4>
+                      <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs font-bold">₹4.72</span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                      Bank confirms the account holder name via eKYC. Safer for large transfers.
+                    </p>
+                    <div className="mt-3 flex items-center gap-1 text-blue-600 dark:text-blue-400 text-xs font-medium">
+                      ₹4 + 18% GST <ChevronRight className="w-3 h-3" />
+                    </div>
+                  </div>
+                </motion.button>
+              </div>
+            </div>
+
           ) : (
+            /* ── Account form ── */
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Add Bank Account</h3>
-              <p className="text-sm text-gray-500 mb-5">Register your bank account via Knteer — one-time ₹4.72 verification fee (₹4 + 18% GST) charged on first transfer to this account</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Account Number</label>
-                  <input type="text" value={newAccNumber} onChange={e => setNewAccNumber(e.target.value.replace(/\D/g, ''))} placeholder="Enter account number" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+              {/* Form header */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${addAccountMode === 'verify' ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-emerald-50 dark:bg-emerald-900/30'}`}>
+                  {addAccountMode === 'verify'
+                    ? <ShieldCheck className="w-5 h-5 text-blue-600" />
+                    : <ShieldAlert className="w-5 h-5 text-emerald-600" />}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Confirm Account Number</label>
-                  <input type="text" value={newConfirmAcc} onChange={e => setNewConfirmAcc(e.target.value.replace(/\D/g, ''))} placeholder="Re-enter account number" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">IFSC Code</label>
-                  <input type="text" value={newIfsc} onChange={e => setNewIfsc(e.target.value.toUpperCase())} placeholder="e.g. SBIN0001234" maxLength={11} className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 uppercase" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Account Holder Name</label>
-                  <input type="text" value={newBeneName} onChange={e => setNewBeneName(e.target.value)} placeholder="As per bank records" className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Mobile Number</label>
-                  <input type="tel" value={newContactMobile} onChange={e => setNewContactMobile(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" maxLength={10} className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700" />
+                  <h3 className="font-bold text-gray-900 dark:text-white">
+                    {addAccountMode === 'verify' ? 'Verify Bank Account' : 'Register Bank Account'}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {addAccountMode === 'verify'
+                      ? '₹4.72 (₹4 + 18% GST) will be charged from your wallet'
+                      : 'Free — no charges applied'}
+                  </p>
                 </div>
               </div>
 
-              <div className="mt-6">
-                <button onClick={handleAddAccount} disabled={verifying}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                  {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-                  {verifying ? 'Registering...' : 'Register Account'}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Account Number *</label>
+                  <input
+                    type="text" inputMode="numeric" value={newAccNumber}
+                    onChange={e => setNewAccNumber(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Enter account number"
+                    className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Confirm Account Number *</label>
+                  <input
+                    type="text" inputMode="numeric" value={newConfirmAcc}
+                    onChange={e => setNewConfirmAcc(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Re-enter account number"
+                    className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">IFSC Code *</label>
+                  <input
+                    type="text" value={newIfsc}
+                    onChange={e => setNewIfsc(e.target.value.toUpperCase())}
+                    placeholder="e.g. SBIN0001234" maxLength={11}
+                    className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 uppercase focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                {/* Name field — only for free registration (verify gets name from bank) */}
+                {addAccountMode === 'register' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Account Holder Name *</label>
+                    <input
+                      type="text" value={newBeneName}
+                      onChange={e => setNewBeneName(e.target.value)}
+                      placeholder="As per bank records"
+                      className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+
+                {addAccountMode === 'verify' && (
+                  <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-start gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-blue-700 dark:text-blue-300">
+                      Account holder name will be fetched directly from the bank via eKYC — no need to enter it manually.
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">Mobile Number *</label>
+                  <input
+                    type="tel" value={newContactMobile}
+                    onChange={e => setNewContactMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile" maxLength={10}
+                    className="w-full px-4 py-2.5 border rounded-xl text-sm dark:bg-gray-800 dark:border-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Disclaimer — only for free registration */}
+              {addAccountMode === 'register' && (
+                <div className="mt-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-start gap-2 mb-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">Important Disclaimer</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                        This account is <strong>NOT bank-verified</strong>. If money is transferred to an incorrect or invalid account, <strong>Same Day Solution will not be liable</strong> for any financial loss. You proceed entirely at your own risk. Please double-check the account number and IFSC before registering.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={disclaimerAccepted}
+                      onChange={e => setDisclaimerAccepted(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded border-amber-400 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                      I understand and accept the risk. I confirm the account details are correct.
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              <div className="mt-5">
+                <button
+                  onClick={() => handleAddAccount(addAccountMode!)}
+                  disabled={verifying || (addAccountMode === 'register' && !disclaimerAccepted)}
+                  className={`w-full py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-white ${
+                    addAccountMode === 'verify'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-700'
+                      : 'bg-gradient-to-r from-emerald-600 to-emerald-700'
+                  }`}
+                >
+                  {verifying
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> {addAccountMode === 'verify' ? 'Verifying with bank...' : 'Registering...'}</>
+                    : addAccountMode === 'verify'
+                      ? <><ShieldCheck className="w-4 h-4" /> Verify & Add Account (₹4.72)</>
+                      : <><BadgeCheck className="w-4 h-4" /> Register Account (Free)</>}
                 </button>
               </div>
             </div>
@@ -865,9 +1063,9 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                       {acct.bank_name && <p className="text-xs text-gray-400">{acct.bank_name}</p>}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full">
-                        <BadgeCheck className="w-3 h-3" /> Registered
-                      </span>
+                      {acct.is_bank_verified
+                        ? <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-full font-medium"><ShieldCheck className="w-3 h-3" /> Verified</span>
+                        : <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-full font-medium"><ShieldAlert className="w-3 h-3" /> Unverified</span>}
                       <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-emerald-500" />
                     </div>
                   </button>
@@ -890,18 +1088,35 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
 
                 {/* Selected Account Card */}
                 {selectedAccount && (
-                  <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-800/30 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-blue-600" />
+                  <>
+                    <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-800/30 flex items-center justify-center">
+                          <Building2 className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-sm text-gray-900 dark:text-white">{selectedAccount.account_holder_name}</p>
+                            {selectedAccount.is_bank_verified
+                              ? <span className="flex items-center gap-0.5 text-xs text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-full"><ShieldCheck className="w-2.5 h-2.5" /> Verified</span>
+                              : <span className="flex items-center gap-0.5 text-xs text-amber-600 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-full"><ShieldAlert className="w-2.5 h-2.5" /> Unverified</span>}
+                          </div>
+                          <p className="text-xs text-gray-500 font-mono">{selectedAccount.account_number} | {selectedAccount.ifsc_code}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-sm text-gray-900 dark:text-white">{selectedAccount.account_holder_name}</p>
-                        <p className="text-xs text-gray-500 font-mono">{selectedAccount.account_number} | {selectedAccount.ifsc_code}</p>
-                      </div>
+                      <button onClick={() => setSettlementStep('select-account')} className="text-xs text-blue-600 hover:underline">Change</button>
                     </div>
-                    <button onClick={() => setSettlementStep('select-account')} className="text-xs text-blue-600 hover:underline">Change</button>
-                  </div>
+
+                    {/* Warning for unverified accounts */}
+                    {!selectedAccount.is_bank_verified && (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                          <strong>Unverified account:</strong> This account was registered without bank verification. Same Day Solution is not responsible for transfers to incorrect accounts. Please verify the details carefully.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Amount */}
@@ -1064,6 +1279,16 @@ export default function KnteerPayoutTransfer({ title }: KnteerPayoutTransferProp
                     </div>
                   )}
                 </div>
+
+                {/* Unverified account confirm warning */}
+                {selectedAccount && !selectedAccount.is_bank_verified && (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      <strong>Unverified account.</strong> By entering your TPIN you confirm the account details are correct. Same Day Solution is not responsible for wrong transfers.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
