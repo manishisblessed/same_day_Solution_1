@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { normalizeMasterPartner } from '@/lib/partner-access'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
-import { getOrCreateBeneCode } from '@/services/knteer-payout/beneficiary'
+import { getOrCreateBeneCode, resolveBankName } from '@/services/knteer-payout/beneficiary'
 import { verifyBankPennyLess, generateOrderId } from '@/services/ekyc'
 import { createClient } from '@supabase/supabase-js'
 
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cleanIfsc = ifsc_code.toUpperCase()
-    const derivedBankName = bank_name?.trim() || cleanIfsc.substring(0, 4).toUpperCase()
+    const derivedBankName = resolveBankName(cleanIfsc, bank_name)
     const derivedEmail = email?.trim() || `${user.partner_id}@knteer.bene`
 
     // ── Registration type validation ───────────────────────────────────────
@@ -377,7 +377,7 @@ export async function POST(request: NextRequest) {
     const verificationUtr = ekycResult.utr || null
     const verifiedAt = new Date().toISOString()
 
-    // Step 2 — Check wallet balance before charging
+    // Step 2 — Check wallet balance (charge only after Knteer registration succeeds)
     let walletBalance = 0
     let balanceError: any = null
     if (user.role === 'partner') {
@@ -399,21 +399,41 @@ export async function POST(request: NextRequest) {
       }, { status: 400 }))
     }
 
-    // Step 3 — Debit verification fee from user wallet
+    // Step 3 — Register with Knteer FIRST (no charge if this fails)
+    const result = await getOrCreateBeneCode(supabaseAdmin, user.partner_id, {
+      accountNumber: account_number,
+      ifsc: cleanIfsc,
+      beneName: verifiedName,
+      bankName: derivedBankName,
+      mobile: String(mobile),
+      email: derivedEmail,
+      isBankVerified: true,
+      verifiedAt,
+      verifiedNameAtBank: verifiedName,
+      verificationUtr: verificationUtr || undefined,
+      verificationOrderid: verifyOrderId,
+    })
+
+    if (!result.success || !result.beneCode) {
+      return addCorsHeaders(request, NextResponse.json({
+        success: false,
+        error: result.error || 'Failed to register account with payout provider. No charge applied.',
+      }, { status: 502 }))
+    }
+
+    // Step 4 — Debit verification fee only after successful registration
     const refId = `K1_VFY_${user.partner_id}_${Date.now()}`
-    let chargeLedgerId: string | null = null
-    let chargeError: any = null
     if (user.role === 'partner') {
-      const { data, error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
+      const { error } = await (supabaseAdmin as any).rpc('debit_partner_wallet', {
         p_partner_id: user.partner_id,
         p_amount: VERIFICATION_FEE,
         p_description: `Settlement-1 bank verification fee ₹${VERIFICATION_FEE} for ${account_number} (${cleanIfsc})`,
         p_reference_id: refId,
         p_service_type: 'knteer_payout',
       })
-      chargeLedgerId = data; chargeError = error
+      if (error) console.error('[Knteer Accounts] Charge debit error after successful registration:', error)
     } else {
-      const { data, error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: user.partner_id,
         p_user_role: user.role,
         p_wallet_type: 'primary',
@@ -427,19 +447,14 @@ export async function POST(request: NextRequest) {
         p_status: 'completed',
         p_remarks: `Settlement-1 bank verification fee ₹${VERIFICATION_FEE} (₹${CHARGE_BASE} + 18% GST) for ${account_number} (${cleanIfsc})`,
       })
-      chargeLedgerId = data; chargeError = error
-    }
-    if (chargeError) {
-      console.error('[Knteer Accounts] Charge debit error:', chargeError)
-      return addCorsHeaders(request, NextResponse.json({ success: false, error: 'Failed to debit verification fee. Please try again.' }, { status: 500 }))
+      if (error) console.error('[Knteer Accounts] Charge debit error after successful registration:', error)
     }
 
-    // Step 4 — Credit to company revenue
+    // Step 5 — Credit to company revenue
     const revenueUserId = process.env.SUBSCRIPTION_REVENUE_USER_ID
     const revenueUserRole = process.env.SUBSCRIPTION_REVENUE_USER_ROLE || 'master_distributor'
-    let revenueLedgerId: string | null = null
     if (revenueUserId) {
-      const { data: revId, error: revErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
+      const { error: revErr } = await (supabaseAdmin as any).rpc('add_ledger_entry', {
         p_user_id: revenueUserId,
         p_user_role: revenueUserRole,
         p_wallet_type: 'primary',
@@ -453,71 +468,7 @@ export async function POST(request: NextRequest) {
         p_status: 'completed',
         p_remarks: `Settlement-1 verification revenue ₹${VERIFICATION_FEE} from ${user.partner_id}`,
       })
-      if (!revErr) revenueLedgerId = revId
-      else console.error('[Knteer Accounts] Revenue credit error:', revErr)
-    }
-
-    // Helper: refund on failure
-    // NOTE: Supabase rpc() returns a thenable but not a full Promise — use try/catch, NOT .catch()
-    const refundFee = async (reason: string) => {
-      const refundRef = `REFUND_${refId}`
-      try {
-        if (user.role === 'partner') {
-          await (supabaseAdmin as any).rpc('credit_partner_wallet', {
-            p_partner_id: user.partner_id, p_amount: VERIFICATION_FEE,
-            p_description: `Refund: ${reason}`, p_reference_id: refundRef,
-            p_transaction_type: 'REFUND', p_service_type: 'knteer_payout',
-          })
-        } else {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: user.partner_id, p_user_role: user.role,
-            p_wallet_type: 'primary', p_fund_category: 'service',
-            p_service_type: 'knteer_payout', p_tx_type: 'ACCOUNT_VERIFICATION_REFUND',
-            p_credit: VERIFICATION_FEE, p_debit: 0,
-            p_reference_id: refundRef, p_transaction_id: null, p_status: 'completed',
-            p_remarks: `Refund: ${reason} for ${account_number} (${cleanIfsc})`,
-          })
-        }
-      } catch (e: any) {
-        console.error('[Knteer Accounts] Refund failed:', e.message)
-      }
-      if (revenueLedgerId && revenueUserId) {
-        try {
-          await (supabaseAdmin as any).rpc('add_ledger_entry', {
-            p_user_id: revenueUserId, p_user_role: revenueUserRole,
-            p_wallet_type: 'primary', p_fund_category: 'revenue',
-            p_service_type: 'knteer_payout', p_tx_type: 'REVENUE_REVERSAL',
-            p_credit: 0, p_debit: VERIFICATION_FEE,
-            p_reference_id: `REV_REFUND_${refId}`, p_transaction_id: null, p_status: 'completed',
-            p_remarks: `Reversal: ${reason} for ${account_number}`,
-          })
-        } catch (e: any) {
-          console.error('[Knteer Accounts] Revenue reversal failed:', e.message)
-        }
-      }
-    }
-
-    // Step 5 — Register with Knteer (get beneCode)
-    const result = await getOrCreateBeneCode(supabaseAdmin, user.partner_id, {
-      accountNumber: account_number,
-      ifsc: cleanIfsc,
-      beneName: verifiedName,             // bank-confirmed name from eKYC
-      bankName: derivedBankName,
-      mobile: String(mobile),
-      email: derivedEmail,
-      isBankVerified: true,
-      verifiedAt,
-      verifiedNameAtBank: verifiedName,
-      verificationUtr: verificationUtr || undefined,
-      verificationOrderid: verifyOrderId,
-    })
-
-    if (!result.success || !result.beneCode) {
-      await refundFee(`Knteer registration failed: ${result.error || 'unknown error'}`)
-      return addCorsHeaders(request, NextResponse.json({
-        success: false,
-        error: `${result.error || 'Failed to register account with provider'}. Your ₹${VERIFICATION_FEE} fee has been refunded.`,
-      }, { status: 502 }))
+      if (revErr) console.error('[Knteer Accounts] Revenue credit error:', revErr)
     }
 
     // Step 6 — Fetch saved record
@@ -530,11 +481,24 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (savedErr || !saved) {
-      await refundFee('DB save failed after registration')
       return addCorsHeaders(request, NextResponse.json({
-        success: false,
-        error: 'Account registered but could not be saved. Your fee has been refunded.',
-      }, { status: 500 }))
+        success: true,
+        registration_type: 'verify',
+        charge_deducted: VERIFICATION_FEE,
+        charge_base: CHARGE_BASE,
+        charge_gst: CHARGE_GST,
+        message: `Account verified successfully. ₹${VERIFICATION_FEE} (₹${CHARGE_BASE} + 18% GST) deducted from wallet.`,
+        account: {
+          id: null,
+          account_number,
+          ifsc_code: cleanIfsc,
+          account_holder_name: verifiedName,
+          bank_name: derivedBankName,
+          bene_code: result.beneCode,
+          is_registered: true,
+          is_bank_verified: true,
+        },
+      }))
     }
 
     return addCorsHeaders(request, NextResponse.json({
