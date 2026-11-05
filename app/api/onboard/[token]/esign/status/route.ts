@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { loadInviteByToken } from '@/lib/onboarding/invites'
+import { loadInviteByToken, upsertVerification } from '@/lib/onboarding/invites'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +32,17 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
       .from('esign_invitees')
       .select('name, email, phone, sign_url, status, sign_type, signed_at')
       .eq('document_id', doc.id)
+
+    // When polling detects completion, ensure the onboarding verification is recorded
+    // (backup in case the Leegality webhook was delayed or missed)
+    if (doc.status === 'COMPLETED') {
+      await upsertVerification(supabase, {
+        inviteId: invite.id,
+        type: 'PARTNER_AGREEMENT',
+        status: 'Success',
+        payload: { documentId: doc.leegality_document_id, method: 'esign' },
+      })
+    }
 
     return NextResponse.json({
       initiated: true,

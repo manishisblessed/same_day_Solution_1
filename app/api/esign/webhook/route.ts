@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { upsertVerification } from '@/lib/onboarding/invites'
 import type { LeegalityWebhookPayload } from '@/services/leegality/types'
 
 export const dynamic = 'force-dynamic'
@@ -97,6 +98,14 @@ export async function POST(request: NextRequest) {
         })
         console.log(`[eSigning Webhook] Auto-recorded agreement acceptance for invite ${updatedDoc.invite_id}`)
       }
+
+      // Record verification so onboarding progress gates correctly
+      await upsertVerification(supabase, {
+        inviteId: updatedDoc.invite_id,
+        type: 'PARTNER_AGREEMENT',
+        status: 'Success',
+        payload: { documentId, method: 'esign' },
+      })
     }
 
     return NextResponse.json({ received: true })

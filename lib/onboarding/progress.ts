@@ -96,7 +96,7 @@ export function computeStepStates(
       case 'documents':
         return docsDone
       case 'declaration':
-        return isDone(verified, 'SELF_DECLARATION', 'Uploaded')
+        return isDone(verified, 'SELF_DECLARATION', 'Uploaded') && isDone(verified, 'PARTNER_AGREEMENT', 'Success')
       case 'finish':
         return registered
       default:

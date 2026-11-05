@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { loadInviteByToken, getVerifications, OPEN_INVITE_STATUSES } from '@/lib/onboarding/invites'
+import { loadInviteByToken, getVerifications, upsertVerification, OPEN_INVITE_STATUSES } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
 import { getLeegalityWorkflowId } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
@@ -35,6 +35,12 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
 
     if (existingDoc) {
       if (existingDoc.status === 'COMPLETED') {
+        await upsertVerification(supabase, {
+          inviteId: invite.id,
+          type: 'PARTNER_AGREEMENT',
+          status: 'Success',
+          payload: { documentId: existingDoc.id, method: 'esign' },
+        })
         return NextResponse.json({ error: 'Agreement already signed', alreadySigned: true }, { status: 400 })
       }
       // If still in progress, return the existing sign URL instead of creating a duplicate
