@@ -100,7 +100,24 @@ jobs:
             touch .env.local
             # Guarantee a trailing newline so appends never join a prior line.
             [ -n "$(tail -c1 .env.local 2>/dev/null)" ] && printf '\n' >> .env.local
-            for kv in "PAY2NEW_RECON_DRY_RUN=false" "PAY2NEW_DIRECT_RECON_DRY_RUN=false"; do
+            # Recon/auto-refund LIVE, plus the CONTINUOUS false-refund audit:
+            #   * discovery cron ENABLED + not dry-run so it detects losses live,
+            #     MANUAL_APPROVAL=true so it only flags (money never moves here),
+            #   * min-age/re-verify tune the incremental self-draining scan,
+            #   * clawback-recovery cron ENABLED + live, but it acts ONLY on rows a
+            #     human approved on the Clawback Approval tab (AwaitingApproval is
+            #     excluded in code), so this is safe to keep live.
+            # To PAUSE any of these, flip the value here — tracked in git, applied on deploy.
+            for kv in \
+              "PAY2NEW_RECON_DRY_RUN=false" \
+              "PAY2NEW_DIRECT_RECON_DRY_RUN=false" \
+              "PAY2NEW_FALSE_REFUND_DISCOVERY_ENABLED=true" \
+              "PAY2NEW_FALSE_REFUND_DISCOVERY_DRY_RUN=false" \
+              "PAY2NEW_FALSE_REFUND_MANUAL_APPROVAL=true" \
+              "PAY2NEW_FALSE_REFUND_MIN_AGE_HOURS=12" \
+              "PAY2NEW_FALSE_REFUND_REVERIFY_DAYS=30" \
+              "PAY2NEW_CLAWBACK_ENABLED=true" \
+              "PAY2NEW_CLAWBACK_DRY_RUN=false"; do
               key="${kv%%=*}"
               sed -i "/^${key}=/d" .env.local
               echo "$kv" >> .env.local

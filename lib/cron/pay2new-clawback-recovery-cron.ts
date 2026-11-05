@@ -84,6 +84,10 @@ async function runCheck(): Promise<void> {
       .ilike('reference_id', 'SDS%')
       .ilike('description', '%FalseRefundConfirmed%')
       .not('description', 'ilike', '%ReconVerified(clawback)%')
+      // GATE: only recover rows a human has APPROVED. Detections still waiting on
+      // the Clawback Approval tab are tagged AwaitingApproval — never auto-recover
+      // them; the approve action converts AwaitingApproval -> RecoveryPending.
+      .not('description', 'ilike', '%AwaitingApproval%')
       .gt('created_at', minCreatedAt)
       .order('created_at', { ascending: true })
       .limit(CFG.batch)
@@ -180,6 +184,70 @@ async function runCheck(): Promise<void> {
       recovered++
       recoveredAmount += amount
       console.log(`[Pay2New-Clawback] ✓ recovered ${ref} ₹${amount} via CLAWBACK_${ref}`)
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // DOMAIN 2 — IN-APP approved-pending (ALL ROLES: in-app partner + retailer).
+    // Rows a human APPROVED on the Clawback Approval tab but couldn't recover
+    // immediately (balance short). Tracked on pay2new_transactions.clawback_state
+    // = 'approved_pending'. Same safety: fresh vendor SUCCESS + exact amount +
+    // idempotent CLAWBACK_. Never touches 'awaiting_approval' (not yet approved).
+    // ════════════════════════════════════════════════════════════════════════
+    const { data: dCand } = await supabase
+      .from('pay2new_transactions')
+      .select('id, user_id, user_role, request_id, total_debit, amount, charge, clawback_order_id, clawback_operator_ref')
+      .eq('clawback_state', 'approved_pending')
+      .ilike('request_id', 'SDS%')
+      .gt('created_at', minCreatedAt)
+      .order('created_at', { ascending: true })
+      .limit(CFG.batch)
+
+    for (const c of (dCand || []) as any[]) {
+      if (recovered >= CFG.maxActionsPerRun) break
+      const ref = c.request_id as string
+      const amount = Number(c.total_debit) || (Number(c.amount || 0) + Number(c.charge || 0))
+      if (!ref || !(amount > 0)) continue
+      if (amount > CFG.maxAmount) { console.warn(`[Pay2New-Clawback] (in-app) ${ref} ₹${amount} exceeds maxAmount — skip`); continue }
+      const isPartner = c.user_role === 'partner'
+      const table = isPartner ? 'partner_wallet_ledger' : 'wallet_ledger'
+      const idCol = isPartner ? 'partner_id' : 'retailer_id'
+      const uid = c.user_id
+
+      const { data: already } = await supabase.from(table).select('id').eq(idCol, uid).eq('reference_id', `CLAWBACK_${ref}`).limit(1).maybeSingle()
+      if (already) { await supabase.from('pay2new_transactions').update({ clawback_state: 'recovered' }).eq('id', c.id); continue }
+      const { data: refundRow } = await supabase.from(table).select('id').eq(idCol, uid).eq('reference_id', `REFUND_${ref}`).limit(1).maybeSingle()
+      if (!refundRow) continue
+
+      let st
+      try { st = await pay2newCheckStatus({ request_id: ref }) }
+      catch (e: any) { console.error(`[Pay2New-Clawback] (in-app) status error ${ref}:`, e?.message); continue }
+      finally { await sleep(CFG.spacingMs) }
+      checked++
+      if (!st.success || st.status !== 'SUCCESS') { console.log(`[Pay2New-Clawback] (in-app) ${ref} vendor=${st.success ? st.status : 'UNREACHABLE'} — not SUCCESS, skip`); continue }
+
+      if (CFG.dryRun) { console.log(`[Pay2New-Clawback] (in-app) WOULD recover ${ref} ₹${amount}`); recovered++; recoveredAmount += amount; continue }
+
+      if (isPartner) {
+        const { data: wallet } = await supabase.from('partner_wallets').select('balance, is_frozen').eq('partner_id', uid).maybeSingle()
+        if (wallet?.is_frozen) { console.log(`[Pay2New-Clawback] (in-app) ${ref} partner frozen — skip`); continue }
+        if (Number(wallet?.balance || 0) < amount) { skippedBalance++; continue }
+        const { error } = await supabase.rpc('debit_partner_wallet', { p_partner_id: uid, p_amount: amount, p_payout_transaction_id: null, p_description: `BBPS-2 clawback of false refund — vendor SUCCESS | orig ${ref}`, p_reference_id: `CLAWBACK_${ref}`, p_service_type: 'pay2new' })
+        if (error) {
+          if (/insufficient/i.test(error.message || '')) { skippedBalance++; continue }
+          if (!/duplicate/i.test(error.message || '')) { console.error(`[Pay2New-Clawback] (in-app) ${ref} failed:`, error.message); Sentry.captureMessage(`Pay2New clawback failed ${ref}: ${error.message}`, 'warning'); continue }
+        }
+      } else {
+        const { error } = await supabase.rpc('add_ledger_entry', { p_user_id: uid, p_user_role: 'retailer', p_wallet_type: 'primary', p_fund_category: 'service', p_service_type: 'pay2new', p_tx_type: 'PAY2NEW_DEBIT', p_credit: 0, p_debit: amount, p_reference_id: `CLAWBACK_${ref}`, p_status: 'completed', p_remarks: `BBPS-2 clawback of false refund — vendor SUCCESS | orig ${ref}` })
+        if (error) {
+          if (/insufficient/i.test(error.message || '')) { skippedBalance++; continue }
+          if (!/duplicate/i.test(error.message || '')) { console.error(`[Pay2New-Clawback] (in-app) ${ref} failed:`, error.message); Sentry.captureMessage(`Pay2New clawback failed ${ref}: ${error.message}`, 'warning'); continue }
+        }
+      }
+      await supabase.from('pay2new_transactions')
+        .update({ status: 'success', clawback_state: 'recovered', order_id: c.clawback_order_id || st.order_id || null, operator_reference: c.clawback_operator_ref || st.operator_reference || null, completed_at: new Date().toISOString(), review_required: false, error_message: null })
+        .eq('id', c.id)
+      recovered++; recoveredAmount += amount
+      console.log(`[Pay2New-Clawback] (in-app ${c.user_role}) ✓ recovered ${ref} ₹${amount} via CLAWBACK_${ref}`)
     }
   } catch (e: any) {
     console.error('[Pay2New-Clawback] run error:', e?.message)

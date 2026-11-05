@@ -56,10 +56,34 @@ async function leegalityFetch<T>(
 export async function createSigningRequest(
   payload: LeegalityCreateRequest
 ): Promise<LeegalityCreateResponse> {
-  return leegalityFetch<LeegalityCreateResponse>('v3.0/sign/request', {
+  const raw = await leegalityFetch<any>('v3.0/sign/request', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+  return normalizeCreateResponse(raw)
+}
+
+/**
+ * Leegality's create response is not documented in the provided collection
+ * (empty sample responses). Different Leegality versions wrap the payload in a
+ * `data` envelope and use `invitations`/`emailId` instead of `invitees`/`email`.
+ * Normalize all known shapes to our LeegalityCreateResponse.
+ */
+function normalizeCreateResponse(raw: any): LeegalityCreateResponse {
+  const body = raw?.data ?? raw ?? {}
+  const list = body.invitees ?? body.invitations ?? body.signers ?? []
+
+  return {
+    documentId: body.documentId ?? body.id ?? '',
+    irn: body.irn ?? '',
+    invitees: (Array.isArray(list) ? list : []).map((inv: any) => ({
+      name: inv.name ?? '',
+      email: inv.email ?? inv.emailId ?? '',
+      phone: inv.phone ?? inv.phoneNumber ?? inv.mobile ?? '',
+      signUrl: inv.signUrl ?? inv.url ?? inv.signingUrl ?? '',
+      status: inv.status ?? (inv.active ? 'active' : 'pending'),
+    })),
+  }
 }
 
 /** Fetch document details and status */

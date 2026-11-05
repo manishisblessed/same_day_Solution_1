@@ -8,7 +8,7 @@ import {
   Settings,
   Activity, X, Menu, CreditCard, Receipt, CheckCircle2, ArrowUpCircle,
   Building2, FileBarChart, Layers, Key, Timer, History, Repeat, ScrollText, Wallet,
-  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network, KeyRound, GitBranch
+  Fingerprint, Server, TrendingUp, Scale, BarChart3, RotateCcw, UserPlus, CalendarDays, Network, KeyRound, GitBranch, ShieldCheck, FileSignature
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase/client'
@@ -74,8 +74,10 @@ const sidebarItems: SidebarItem[] = [
   { id: 'subscriptions', label: 'Subscriptions', icon: Repeat, href: '/admin?tab=subscriptions' },
   { id: 'portal-management', label: 'Portal Management', icon: Server, href: '/admin?tab=portal-management' },
   { id: 'legal-agreements', label: 'Legal Agreements', icon: Scale, href: '/admin/agreements' },
+  { id: 'signed-agreements', label: 'Signed Agreements', icon: FileSignature, href: '/admin/signed-agreements' },
   { id: 'reversals', label: 'Reversals', icon: RotateCcw, href: '/admin/reversals' },
   { id: 'pay2new-reversals', label: 'BBPS-2 Reversals', icon: RotateCcw, href: '/admin/pay2new-reversals' },
+  { id: 'pay2new-clawback-approval', label: 'Clawback Approval', icon: ShieldCheck, href: '/admin/pay2new-clawback-approval' },
   { id: 'pay2new-banks', label: 'Pay2New Banks', icon: CreditCard, href: '/admin/pay2new-banks' },
   { id: 'credentials', label: 'Credentials', icon: KeyRound, href: '/admin/credentials' },
   { id: 'settings', label: 'Settings', icon: Settings, href: '/admin/settings' },

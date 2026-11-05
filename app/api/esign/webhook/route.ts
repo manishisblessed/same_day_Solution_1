@@ -15,18 +15,44 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
     } else {
-      // PRODUCTION: configure ESIGN_WEBHOOK_SECRET to enforce authentication
       console.warn('[eSign Webhook] ESIGN_WEBHOOK_SECRET not configured — skipping auth (configure in production!)')
     }
 
-    const payload: LeegalityWebhookPayload = await request.json()
-    const { documentId, status, invitee, file, auditTrail } = payload
+    const raw: any = await request.json()
+    // Leegality webhook shape is undocumented in the provided collection and
+    // varies by version; normalize the fields we rely on defensively.
+    const body = raw?.data ?? raw ?? {}
+    const payload: LeegalityWebhookPayload = {
+      documentId: body.documentId ?? body.id ?? '',
+      irn: body.irn ?? '',
+      status: body.status ?? body.documentStatus ?? '',
+      invitee: body.invitee
+        ? {
+            name: body.invitee.name ?? '',
+            email: body.invitee.email ?? body.invitee.emailId ?? '',
+            signUrl: body.invitee.signUrl ?? body.invitee.url ?? '',
+            signType: body.invitee.signType ?? body.invitee.type ?? '',
+          }
+        : undefined,
+      file: body.file ?? body.documentUrl ?? undefined,
+      auditTrail: body.auditTrail ?? body.auditTrailUrl ?? undefined,
+    }
+    const { documentId, invitee, file, auditTrail } = payload
 
-    console.log(`[eSigning Webhook] documentId=${documentId} status=${status}`)
+    // Canonicalize status to our internal values regardless of Leegality casing
+    const rawStatus = String(payload.status || '').toUpperCase()
+    let status = payload.status
+    if (['COMPLETED', 'SIGNED', 'COMPLETE'].includes(rawStatus)) status = 'COMPLETED'
+    else if (['IN PROGRESS', 'IN_PROGRESS', 'PENDING', 'ACTIVE'].includes(rawStatus)) status = 'IN PROGRESS'
+    else if (['EXPIRED'].includes(rawStatus)) status = 'EXPIRED'
+    else if (['DELETED', 'DECLINED', 'REJECTED'].includes(rawStatus)) status = 'DELETED'
+
+    console.log(`[eSigning Webhook] documentId=${documentId} status=${status} (raw=${payload.status})`)
 
     const supabase = getSupabaseAdmin()
 
-    await supabase
+    // Update the esign_documents record
+    const { data: updatedDoc } = await supabase
       .from('esign_documents')
       .update({
         status,
@@ -35,6 +61,8 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq('leegality_document_id', documentId)
+      .select('id, invite_id')
+      .maybeSingle()
 
     if (invitee?.signUrl) {
       await supabase
@@ -45,6 +73,30 @@ export async function POST(request: NextRequest) {
           signed_at: new Date().toISOString(),
         })
         .eq('sign_url', invitee.signUrl)
+    }
+
+    // If the document is COMPLETED and linked to an onboarding invite,
+    // record the agreement acceptance automatically.
+    if (status === 'COMPLETED' && updatedDoc?.invite_id) {
+      const { data: existingAcceptance } = await supabase
+        .from('agreement_acceptances')
+        .select('id')
+        .eq('invite_id', updatedDoc.invite_id)
+        .eq('method', 'esign')
+        .limit(1)
+        .maybeSingle()
+
+      if (!existingAcceptance) {
+        await supabase.from('agreement_acceptances').insert({
+          invite_id: updatedDoc.invite_id,
+          doc_version: 'v1.0',
+          method: 'esign',
+          ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
+          user_agent: 'leegality-webhook',
+          esign_document_id: documentId,
+        })
+        console.log(`[eSigning Webhook] Auto-recorded agreement acceptance for invite ${updatedDoc.invite_id}`)
+      }
     }
 
     return NextResponse.json({ received: true })

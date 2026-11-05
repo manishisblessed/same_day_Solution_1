@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
         irn: result.irn || irn || null,
         document_name: fileName || 'Agreement',
         status: 'IN PROGRESS',
+        invite_id: body.inviteId || null,
       })
       .select('id')
       .single()

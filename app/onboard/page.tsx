@@ -1479,6 +1479,11 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
   const [agreed, setAgreed] = useState(false)
   const pollRef = useRef<any>(null)
 
+  // eSign state
+  const [esignStatus, setEsignStatus] = useState<string | null>(null) // null | 'initiating' | 'IN PROGRESS' | 'COMPLETED'
+  const [signUrl, setSignUrl] = useState<string | null>(null)
+  const esignPollRef = useRef<any>(null)
+
   const uploadDeclaration = async (dataUrl: string) => {
     setErr('')
     await api('/documents', { method: 'POST', body: JSON.stringify({ type: 'SELF_DECLARATION', dataUrl }) })
@@ -1493,13 +1498,34 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
     } catch {}
   }, [api, requiresUplineApproval])
 
+  // Poll eSign status
+  const checkEsignStatus = useCallback(async () => {
+    try {
+      const r = await api('/esign/status', { method: 'GET' })
+      if (r.initiated) {
+        setEsignStatus(r.status)
+        if (r.status === 'COMPLETED') {
+          setAgreed(true)
+          if (esignPollRef.current) clearInterval(esignPollRef.current)
+        }
+        if (r.invitees?.[0]?.sign_url && r.status !== 'COMPLETED') {
+          setSignUrl(r.invitees[0].sign_url)
+        }
+      }
+    } catch {}
+  }, [api])
+
   useEffect(() => {
     checkStatus()
+    checkEsignStatus()
     if (requiresUplineApproval) {
       pollRef.current = setInterval(checkStatus, 10000)
-      return () => clearInterval(pollRef.current)
     }
-  }, [checkStatus, requiresUplineApproval])
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+      if (esignPollRef.current) clearInterval(esignPollRef.current)
+    }
+  }, [checkStatus, checkEsignStatus, requiresUplineApproval])
 
   async function sendForApproval() {
     setBusy(true)
@@ -1514,21 +1540,53 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
     }
   }
 
-  async function acceptAgreement() {
-    await api('/agreement', { method: 'POST', body: JSON.stringify({ accepted: true }) }).catch(() => {})
-    setAgreed(true)
+  async function initiateEsign() {
+    setBusy(true)
+    setErr('')
+    setEsignStatus('initiating')
+    try {
+      const r = await api('/esign/initiate', { method: 'POST' })
+      if (r.signUrl) {
+        setSignUrl(r.signUrl)
+        setEsignStatus('IN PROGRESS')
+        // Start polling for completion
+        esignPollRef.current = setInterval(checkEsignStatus, 8000)
+        // Open signing URL in new tab
+        window.open(r.signUrl, '_blank')
+      } else if (r.alreadySigned) {
+        setEsignStatus('COMPLETED')
+        setAgreed(true)
+      }
+    } catch (e: any) {
+      setErr(e.message)
+      setEsignStatus(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openSignUrl() {
+    if (signUrl) {
+      window.open(signUrl, '_blank')
+      // Start polling if not already
+      if (!esignPollRef.current) {
+        esignPollRef.current = setInterval(checkEsignStatus, 8000)
+      }
+    }
   }
 
   const approvalOk = !requiresUplineApproval || approval?.status === 'approved'
-  const canProceed = declUploaded && approvalOk && agreed
+  const canProceed = declUploaded && approvalOk && (agreed || esignStatus === 'COMPLETED')
 
   return (
     <div>
-      <StepHeader icon={FileSignature} title="Declaration & Agreement" subtitle="Final step — sign, upload, and accept the terms." />
+      <StepHeader icon={FileSignature} title="Declaration & Agreement" subtitle="Upload your declaration and digitally sign the partner agreement." />
       <RejectionNote reason={rejections['SELF_DECLARATION']} />
       <ErrorBanner err={err} />
       <div className="mt-5 space-y-4">
+        {/* 1. Self-Declaration Upload */}
         <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Step 1 — Self-Declaration</p>
           <a href={getApiUrl(`/api/onboard/${encodeURIComponent(token)}/pg-form/download`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:underline">
             <FileText className="h-4 w-4" /> Download Self-Declaration Form (prefilled — sign &amp; upload)
           </a>
@@ -1538,9 +1596,10 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
           </div>
         </div>
 
+        {/* 2. Upline Approval */}
         {requiresUplineApproval && (
-          <div className="rounded-xl border border-gray-200 p-3">
-            <p className="text-sm font-medium text-gray-700">2. Upline Approval</p>
+          <div className="rounded-2xl border border-gray-200 p-4">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Step 2 — Upline Approval</p>
             {!approval ? (
               <PrimaryButton onClick={sendForApproval} disabled={!declUploaded} busy={busy} className="mt-2 px-4 py-2">
                 Send for Approval
@@ -1557,10 +1616,59 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
           </div>
         )}
 
-        <label className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 text-sm transition-colors ${agreed ? 'border-indigo-300 bg-indigo-50/60 text-gray-800' : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-200'}`}>
-          <input type="checkbox" checked={agreed} onChange={(e) => (e.target.checked ? acceptAgreement() : setAgreed(false))} className="mt-0.5 h-4 w-4 accent-indigo-600" />
-          <span>I accept the <span className="font-medium text-indigo-600">partner agreement</span>, terms of service and privacy policy.</span>
-        </label>
+        {/* 3. eSign Partner Agreement */}
+        <div className="rounded-2xl border border-gray-200 p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {requiresUplineApproval ? 'Step 3' : 'Step 2'} — Partner Agreement (eSign)
+          </p>
+
+          {esignStatus === 'COMPLETED' ? (
+            <SuccessNote>
+              <span className="flex items-center gap-2">
+                <Check className="h-4 w-4" /> Partner Agreement signed successfully
+              </span>
+            </SuccessNote>
+          ) : esignStatus === 'IN PROGRESS' ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Waiting for your signature…</p>
+                  <p className="text-xs text-amber-600">Complete the signing in the opened tab. This page will update automatically.</p>
+                </div>
+              </div>
+              <button
+                onClick={openSignUrl}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+              >
+                <FileSignature className="h-4 w-4" /> Open Signing Page Again
+              </button>
+            </div>
+          ) : esignStatus === 'initiating' ? (
+            <div className="flex items-center gap-2 p-3 text-sm text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" /> Preparing your agreement for signing…
+            </div>
+          ) : (
+            <div>
+              <p className="mb-3 text-sm text-gray-600">
+                Your prefilled Partner Agreement will be generated and sent for digital signature via Leegality.
+              </p>
+              <PrimaryButton
+                onClick={initiateEsign}
+                disabled={!declUploaded || !approvalOk}
+                busy={busy}
+                className="px-5 py-2.5"
+              >
+                <FileSignature className="mr-1.5 inline h-4 w-4" /> Sign Partner Agreement
+              </PrimaryButton>
+              {(!declUploaded || !approvalOk) && (
+                <p className="mt-2 text-xs text-gray-400">
+                  {!declUploaded ? 'Upload your self-declaration first.' : 'Waiting for upline approval.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <NavButtons onBack={back} onNext={next} nextDisabled={!canProceed} busy={busy} />
     </div>
