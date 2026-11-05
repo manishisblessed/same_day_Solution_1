@@ -21,12 +21,14 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          LEEGALITY_AUTH_TOKEN: ${{ secrets.LEEGALITY_AUTH_TOKEN }}
+          LEEGALITY_PRIVATE_SALT: ${{ secrets.LEEGALITY_PRIVATE_SALT }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 20m
-          envs: DATABASE_URL
+          envs: DATABASE_URL,LEEGALITY_AUTH_TOKEN,LEEGALITY_PRIVATE_SALT
           script: |
             set -e
             PM2_APP="sameday-backend"
@@ -122,6 +124,29 @@ jobs:
               sed -i "/^${key}=/d" .env.local
               echo "$kv" >> .env.local
               echo "  set ${kv}"
+            done
+
+            # ── Leegality eSigning env vars ──
+            echo "Enforcing Leegality eSigning config in .env.local..."
+            for kv in \
+              "LEEGALITY_BASE_URL=https://app1.leegality.com/api" \
+              "LEEGALITY_WORKFLOW_ID=8SVyIPv" \
+              "LEEGALITY_TIMEOUT=30000" \
+              "LEEGALITY_WEBHOOK_URL=https://samedaysolution.in/api/esign/webhook" \
+              "LEEGALITY_REDIRECT_URL=https://samedaysolution.in/esign/complete"; do
+              key="${kv%%=*}"
+              sed -i "/^${key}=/d" .env.local
+              echo "$kv" >> .env.local
+              echo "  set ${kv}"
+            done
+            # Secrets injected from GitHub Actions
+            for key in LEEGALITY_AUTH_TOKEN LEEGALITY_PRIVATE_SALT; do
+              val="$(eval echo \$$key)"
+              if [ -n "$val" ]; then
+                sed -i "/^${key}=/d" .env.local
+                echo "${key}=${val}" >> .env.local
+                echo "  set ${key}=***"
+              fi
             done
 
             # Apply pending DB migrations BEFORE build/restart so the new code
