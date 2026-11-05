@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- Pay2New (BBPS-2) — FALSE-REFUND audit watermark.
 --
 -- WHY: The false-refund discovery cron must become a CONTINUOUS, self-draining

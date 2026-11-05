@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- Pay2New (BBPS-2) — FALSE-REFUND audit coverage for the IN-APP flow (ALL ROLES).
 --
 -- WHY: The partner_wallet_ledger watermark (20261105_0001) covers the partner-API
