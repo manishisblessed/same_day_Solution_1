@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'request_id is required' }, { status: 400 })
     }
 
-    const res = await pay2newCheckStatus({ request_id: requestId })
+    const res = await checkStatusWithLog(getSupabaseAdmin(), { request_id: requestId }, 'admin')
     // Map to the admin decision: can this be manually refunded?
     // refundable  = vendor definitively did NOT charge (FAILED / not-found / reversed)
     // blocked     = vendor SUCCESS (never refund)

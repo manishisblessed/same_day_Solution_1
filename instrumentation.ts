@@ -98,6 +98,14 @@ export async function register() {
     }
 
     try {
+      const { initPay2NewInvariantMonitorCron } = await import('@/lib/cron/pay2new-invariant-monitor-cron')
+      await initPay2NewInvariantMonitorCron()
+      console.log('[Instrumentation] Pay2New Invariant Monitor Cron initialized successfully')
+    } catch (err) {
+      console.error('[Instrumentation] Failed to initialize Pay2New Invariant Monitor cron:', err)
+    }
+
+    try {
       const { initRechargekitReconcileCron } = await import('@/lib/cron/rechargekit-reconcile-cron')
       await initRechargekitReconcileCron()
       console.log('[Instrumentation] Rechargekit Reconcile Cron initialized successfully')

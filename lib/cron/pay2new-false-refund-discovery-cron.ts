@@ -41,7 +41,7 @@
 import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
 import { buildPay2NewStatusPayload, type Pay2NewTerminalStatus } from '@/lib/partner-webhook/pay2new-payload'
 
@@ -212,7 +212,7 @@ async function runCheck(): Promise<void> {
       // FRESH vendor re-verify — only a definitive SUCCESS justifies a clawback.
       let st
       try {
-        st = await pay2newCheckStatus({ request_id: ref })
+        st = await checkStatusWithLog(supabase, { request_id: ref }, 'false_refund_cron')
       } catch (e: any) {
         console.error(`[Pay2New-FalseRefundDiscovery] status error ${ref}:`, e?.message)
         continue
@@ -406,7 +406,7 @@ async function runCheck(): Promise<void> {
 
         let dst
         try {
-          dst = await pay2newCheckStatus({ request_id: ref })
+          dst = await checkStatusWithLog(supabase, { request_id: ref }, 'false_refund_cron')
         } catch (e: any) {
           console.error(`[Pay2New-FalseRefundDiscovery] (in-app) status error ${ref}:`, e?.message)
           continue

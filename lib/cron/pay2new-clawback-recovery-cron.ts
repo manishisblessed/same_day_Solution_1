@@ -26,7 +26,7 @@
 import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 
 const CRON_EXPRESSION = process.env.PAY2NEW_CLAWBACK_CRON || '*/10 * * * *'
 
@@ -128,7 +128,7 @@ async function runCheck(): Promise<void> {
       // FRESH vendor re-verify — only a definitive SUCCESS justifies a clawback.
       let st
       try {
-        st = await pay2newCheckStatus({ request_id: ref })
+        st = await checkStatusWithLog(supabase, { request_id: ref }, 'clawback_cron')
       } catch (e: any) {
         console.error(`[Pay2New-Clawback] status error ${ref}:`, e?.message)
         continue
@@ -219,7 +219,7 @@ async function runCheck(): Promise<void> {
       if (!refundRow) continue
 
       let st
-      try { st = await pay2newCheckStatus({ request_id: ref }) }
+      try { st = await checkStatusWithLog(supabase, { request_id: ref }, 'clawback_cron') }
       catch (e: any) { console.error(`[Pay2New-Clawback] (in-app) status error ${ref}:`, e?.message); continue }
       finally { await sleep(CFG.spacingMs) }
       checked++

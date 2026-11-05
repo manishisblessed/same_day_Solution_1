@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
 import { resolvePay2NewDebitState, type Pay2NewDebitRow } from '@/lib/pay2new/ledger-status'
+import { readAuthoritativeState } from '@/lib/pay2new/state-machine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -131,10 +132,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Single source of truth for state (reads order_id from the description, does
-    // a non-mutating upstream check for still-pending rows). Fixes the old bug
-    // where order_id was read from payout_transaction_id and always came back null.
-    const resolved = await resolvePay2NewDebitState(supabase, partner.id, debitEntry)
+    // AUTHORITATIVE STATE: read the explicit, owned state from the pay2new_payments
+    // projection (kept in lock-step with wallet money movement by a DB trigger).
+    // A TERMINAL projected state is returned directly — no string parsing, no
+    // vendor call. Only a PENDING (or a not-yet-projected legacy/direct row) falls
+    // back to the legacy resolver, which probes the vendor (logging the raw payload
+    // as evidence) and can promote to SUCCESS.
+    let resolved = await readAuthoritativeState(supabase, debitEntry.reference_id)
+    if (!resolved || resolved.status === 'PENDING') {
+      resolved = await resolvePay2NewDebitState(supabase, partner.id, debitEntry)
+    }
 
     return NextResponse.json({
       success: true,

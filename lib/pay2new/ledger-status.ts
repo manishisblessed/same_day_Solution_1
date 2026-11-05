@@ -16,7 +16,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from './status-log'
 
 export interface Pay2NewDebitRow {
   id: string
@@ -248,7 +248,8 @@ export async function resolvePay2NewDebitState(
     status = 'PENDING'
     if (opts.checkUpstream !== false) {
       try {
-        const up = await pay2newCheckStatus({ request_id: requestId })
+        // Probe + persist raw vendor payload as evidence (recovery trail).
+        const up = await checkStatusWithLog(supabase, { request_id: requestId }, 'status_api')
         if (up.success && up.status === 'SUCCESS') {
           status = 'SUCCESS'
           if (up.operator_reference) operatorReference = up.operator_reference

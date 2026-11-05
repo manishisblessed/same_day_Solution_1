@@ -31,7 +31,7 @@
 import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 
 const CRON_EXPRESSION = process.env.PAY2NEW_DIRECT_RECON_CRON || '*/5 * * * *'
@@ -250,7 +250,7 @@ async function runCheck(): Promise<void> {
 
       let res
       try {
-        res = await pay2newCheckStatus({ request_id: ref })
+        res = await checkStatusWithLog(supabase, { request_id: ref }, 'direct_recon')
       } catch (e: any) {
         console.error(`[Pay2New-DirectRecon] status error ${ref}:`, e?.message)
         continue

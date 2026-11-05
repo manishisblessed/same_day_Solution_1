@@ -37,7 +37,7 @@
 import cron, { ScheduledTask } from 'node-cron'
 import * as Sentry from '@sentry/nextjs'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
 import { buildPay2NewStatusPayload, type Pay2NewTerminalStatus } from '@/lib/partner-webhook/pay2new-payload'
@@ -231,7 +231,8 @@ async function runCheck(): Promise<void> {
 
       let res
       try {
-        res = await pay2newCheckStatus({ request_id: ref })
+        // Probe + persist raw vendor payload as evidence (recovery trail).
+        res = await checkStatusWithLog(supabase, { request_id: ref }, 'recon')
       } catch (e: any) {
         console.error(`[Pay2New-Recon] status error ${ref}:`, e?.message)
         continue

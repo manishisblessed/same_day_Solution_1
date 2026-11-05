@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import { reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import * as Sentry from '@sentry/nextjs'
 
@@ -352,7 +352,8 @@ async function processOne(
   }
 
   // Gate 2 — fresh vendor status; refund ONLY on a definitive not-charged.
-  const st = await pay2newCheckStatus({ request_id: requestId })
+  // Probe + persist raw payload as evidence (this is the verdict the refund rests on).
+  const st = await checkStatusWithLog(supabase, { request_id: requestId }, 'admin')
   const providerStatus = st.success ? st.status : 'UNREACHABLE'
   if (!st.success) {
     return { request_id: requestId, owner, amount, result: 'wait', provider_status: providerStatus, message: 'Provider unreachable — cannot confirm not-charged.' }

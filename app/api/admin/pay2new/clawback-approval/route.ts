@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
-import { pay2newCheckStatus } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import * as Sentry from '@sentry/nextjs'
 
 export const runtime = 'nodejs'
@@ -330,7 +330,8 @@ async function approveOne(
   }
 
   // DUAL-CHECK: fresh vendor status — only a definitive SUCCESS justifies a clawback.
-  const st = await pay2newCheckStatus({ request_id: requestId })
+  // Probe + persist raw payload as evidence (the SUCCESS verdict the clawback rests on).
+  const st = await checkStatusWithLog(supabase, { request_id: requestId }, 'admin')
   const providerStatus = st.success ? st.status : 'UNREACHABLE'
   if (!st.success) return { request_id: requestId, owner, amount, result: 'wait', provider_status: providerStatus, message: 'Vendor unreachable — cannot confirm SUCCESS.' }
   if (st.status !== 'SUCCESS') {

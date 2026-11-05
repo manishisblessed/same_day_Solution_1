@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { authenticatePartner, PartnerAuthError, partnerCanUseApi } from '@/lib/partner-auth'
-import { pay2newPayBill, pay2newCheckStatus, settlePay2New } from '@/services/pay2new'
+import { pay2newPayBill, settlePay2New } from '@/services/pay2new'
+import { checkStatusWithLog } from '@/lib/pay2new/status-log'
 import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
 import { getPartnerApiMax } from '@/lib/txn-limits'
@@ -194,11 +195,12 @@ export async function POST(request: NextRequest) {
         // So we only re-open the card for a fresh charge when the UPSTREAM
         // provider authoritatively confirms the prior attempt was NOT charged
         // (FAILED / REFUNDED). Anything else is treated as not-safe-to-recharge.
-        let upstream: Awaited<ReturnType<typeof pay2newCheckStatus>>
+        let upstream: Awaited<ReturnType<typeof checkStatusWithLog>>
         try {
-          upstream = await pay2newCheckStatus({ request_id: priorAttempt.reference_id })
+          // Probe + persist raw payload as evidence before any reopen/recharge decision.
+          upstream = await checkStatusWithLog(supabase, { request_id: priorAttempt.reference_id }, 'pay')
         } catch {
-          upstream = { success: false }
+          upstream = { success: false, evidenceId: null }
         }
         const confirmedNotCharged =
           upstream.success === true &&
