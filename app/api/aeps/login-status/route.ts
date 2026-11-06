@@ -240,6 +240,20 @@ export async function POST(request: NextRequest) {
       bankName: b.bankName || b.name || 'Unknown Bank',
     }));
 
+    // Chagans is the source of truth for KYC. Our local aeps_merchants.kyc_status is
+    // just a cache that can lag. If Chagans says validated but our cache disagrees,
+    // sync it now — otherwise /login (which trusts only the local column) would report
+    // "KYC not validated" right after we route the merchant to the biometric screen.
+    let resolvedKyc = merchantRecord.kyc_status || result.data?.kycStatus || null;
+    if (result.data?.kycStatus === 'validated' && merchantRecord.kyc_status !== 'validated') {
+      resolvedKyc = 'validated';
+      await supabase
+        .from('aeps_merchants')
+        .update({ kyc_status: 'validated', updated_at: new Date().toISOString() })
+        .eq('user_id', user.partner_id);
+      console.log('[AEPS Login Status] Synced local kyc_status -> validated from Chagans');
+    }
+
     // Both conditions must be true: our local 24h+device session AND Chagans active session.
     // When Chagans says loginStatus=false (session expired on their side), the retailer
     // must re-do biometric login so Chagans can activate its session and return bankList.
@@ -253,7 +267,7 @@ export async function POST(request: NextRequest) {
         bankList,
         wadh: effectiveLoginStatus ? (result.data?.wadh || safeWadh || null) : (result.data?.wadh || null),
         route: result.data?.route || null,
-        kycStatus: merchantRecord.kyc_status || result.data?.kycStatus || null,
+        kycStatus: resolvedKyc,
         sessionExpired: !sessionActive ? true : undefined,
         deviceChanged: !deviceMatch ? true : undefined,
       },

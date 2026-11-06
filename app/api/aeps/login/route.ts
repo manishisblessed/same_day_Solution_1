@@ -125,15 +125,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (merchantRecord.kyc_status !== 'validated') {
+    // Call Chagans AEPS login API
+    const aepsClient = getAEPSClient();
+
+    // Local kyc_status is a cache that can lag behind Chagans (the source of truth).
+    // login-status falls back to Chagans' kycStatus and may route the merchant here
+    // even when our local column isn't yet 'validated'. Re-check with Chagans and
+    // sync the cache before rejecting, so the two endpoints can't disagree.
+    let effectiveKycStatus = merchantRecord.kyc_status;
+    if (effectiveKycStatus !== 'validated') {
+      try {
+        const statusCheck = await aepsClient.checkLoginStatus({
+          merchantId: merchantRecord.merchant_id,
+          type: transType === 'deposit' ? 'deposit' : 'withdraw',
+        });
+        if (statusCheck.data?.kycStatus === 'validated') {
+          effectiveKycStatus = 'validated';
+          await supabase
+            .from('aeps_merchants')
+            .update({ kyc_status: 'validated', updated_at: new Date().toISOString() })
+            .eq('user_id', user.partner_id);
+          console.log('[AEPS Login] Synced local kyc_status -> validated from Chagans');
+        }
+      } catch (e) {
+        console.error('[AEPS Login] KYC re-check failed:', e);
+      }
+    }
+
+    if (effectiveKycStatus !== 'validated') {
       return NextResponse.json(
         { error: 'KYC not validated. Please complete KYC first.' },
         { status: 400 }
       );
     }
-
-    // Call Chagans AEPS login API
-    const aepsClient = getAEPSClient();
     
     try {
       const loginResponse = await aepsClient.aepsLogin({
