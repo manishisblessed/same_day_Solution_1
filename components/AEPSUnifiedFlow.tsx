@@ -109,7 +109,7 @@ interface TransactionResult {
   receipt: ReceiptData;
 }
 
-type FlowStep = 'check_merchant' | 'kyc_form' | 'biometric_login' | 'transaction';
+type FlowStep = 'check_merchant' | 'kyc_form' | 'kyc_pending' | 'biometric_login' | 'transaction';
 type TransactionType = 'balance_inquiry' | 'cash_withdrawal' | 'cash_deposit' | 'mini_statement';
 
 // ============================================================================
@@ -2147,8 +2147,13 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
           setCurrentStep('biometric_login');
         }
       } else if (loginStatus.data?.kycStatus === 'pending') {
-        setError('KYC verification is in progress. Please wait and try again later.');
-        setCurrentStep('kyc_form');
+        setMerchantInfo({
+          merchant_id: user.partner_id,
+          name: user.name || '',
+          mobile: '',
+          kyc_status: 'pending',
+        });
+        setCurrentStep('kyc_pending');
       } else {
         setCurrentStep('kyc_form');
       }
@@ -2163,6 +2168,61 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
   useEffect(() => {
     checkMerchantStatus();
   }, [checkMerchantStatus]);
+
+  // While KYC is pending at Chagans, poll login-status until it flips to 'validated',
+  // then automatically advance to biometric login. Backend already syncs the local
+  // cache from Chagans, so this is a read-only poll on the client side.
+  const pollAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (currentStep !== 'kyc_pending') {
+      pollAttemptsRef.current = 0;
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const ls = await apiFetchJson('/api/aeps/login-status', {
+          method: 'POST',
+          body: JSON.stringify({ merchantId: user.partner_id, type: 'withdraw', deviceFingerprint: deviceFP }),
+        });
+        if (cancelled) return;
+        pollAttemptsRef.current += 1;
+        if (ls.data?.kycStatus === 'validated') {
+          setMerchantInfo({
+            merchant_id: user.partner_id,
+            name: user.name || '',
+            mobile: '',
+            kyc_status: 'validated',
+            login_wadh: ls.data.wadh,
+          });
+          if (ls.data.wadh) setWadh(ls.data.wadh);
+          const initialBanks = ls.data.bankList || [];
+          if (initialBanks.length > 0) {
+            setBanks(initialBanks);
+          } else {
+            try {
+              const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${user.partner_id}`);
+              if (!cancelled) setBanks(banksData.data || banksData.banks || []);
+            } catch { /* non-fatal; banks refetch after login */ }
+          }
+          if (!cancelled) {
+            setNotification({ message: 'KYC validated. You can now log in with your biometric device.', type: 'success' });
+            setCurrentStep('biometric_login');
+          }
+        } else if (ls.data?.kycStatus === 'rejected') {
+          if (!cancelled) {
+            setError('KYC was rejected. Please review your details and submit again.');
+            setCurrentStep('kyc_form');
+          }
+        }
+      } catch {
+        // transient (e.g. 429) — keep polling
+      }
+    };
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [currentStep, user.partner_id, user.name, deviceFP]);
 
   const handleKYCSubmit = async (data: KYCFormData) => {
     setIsLoading(true);
@@ -2189,17 +2249,26 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
       });
 
       if (result.success) {
+        const submittedKyc = result.data?.kycStatus || 'pending';
         setMerchantInfo({
           merchant_id: result.data?.merchantId || user.partner_id,
           name: data.fullName,
           mobile: data.mobile,
-          kyc_status: result.data?.kycStatus || 'pending'
+          kyc_status: submittedKyc
         });
-        
-        const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${result.data?.merchantId || user.partner_id}`);
-        setBanks(banksData.data || banksData.banks || []);
-        
-        setCurrentStep('biometric_login');
+
+        // Biometric login only works once Chagans has VALIDATED the KYC. A freshly
+        // submitted merchant is still 'pending' at the aggregator, so routing straight
+        // to biometric makes /api/aeps/login correctly reject with "KYC not validated".
+        // Gate here: only go to biometric when validated; otherwise show the review
+        // screen and poll until Chagans flips the status.
+        if (submittedKyc === 'validated') {
+          const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${result.data?.merchantId || user.partner_id}`);
+          setBanks(banksData.data || banksData.banks || []);
+          setCurrentStep('biometric_login');
+        } else {
+          setCurrentStep('kyc_pending');
+        }
       } else {
         throw new Error(result.error || 'KYC submission failed');
       }
@@ -2253,6 +2322,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
     switch (currentStep) {
       case 'check_merchant': return 0;
       case 'kyc_form': return 1;
+      case 'kyc_pending': return 1;
       case 'biometric_login': return 2;
       case 'transaction': return 3;
       default: return 0;
@@ -2332,6 +2402,39 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
               onCancel={() => window.history.back()}
               isLoading={isLoading}
             />
+          )}
+
+          {currentStep === 'kyc_pending' && (
+            <div className="max-w-xl mx-auto bg-white rounded-2xl border border-amber-200 shadow-sm p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-amber-50 flex items-center justify-center">
+                <Clock className="w-8 h-8 text-amber-500 animate-pulse" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">KYC under review</h3>
+              <p className="text-gray-600 mb-4">
+                Your AEPS KYC has been submitted and is being validated by the banking partner.
+                Biometric login unlocks automatically once it&apos;s approved — this page is checking
+                the status for you.
+              </p>
+              <div className="flex items-center justify-center gap-2 text-sm text-amber-600 mb-6">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Checking validation status every few seconds…</span>
+              </div>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => checkMerchantStatus()}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <RefreshCw className="w-4 h-4" /> Check now
+                </button>
+                <button
+                  onClick={() => setCurrentStep('kyc_form')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-gray-500 hover:text-gray-700"
+                >
+                  Edit details
+                </button>
+              </div>
+            </div>
           )}
 
           {currentStep === 'biometric_login' && merchantInfo && (

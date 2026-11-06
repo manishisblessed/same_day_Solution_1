@@ -168,6 +168,49 @@ export async function GET(request: NextRequest) {
       console.error('[Admin Pay2New Review] stuck-discovery error:', e?.message)
     }
 
+    // ── DIRECT-FLOW SAFETY NET (in-app partner + retailer) ────────────────────
+    // The partner-ledger safety net above only covers the partner-API flow. In-app
+    // users (retailers like RT000027, in-app partners) are tracked in
+    // pay2new_transactions — if the vendor keeps returning PENDING indefinitely,
+    // the recon never sets review_required=true and the admin has NO visibility.
+    // This net catches them: any direct-flow pending txn aged past 30 min, not yet
+    // flagged, not already listed. Deduped by request_id.
+    try {
+      const floorIso2 = new Date(Date.now() - 30 * 60_000).toISOString()
+      const seen2 = new Set(items.map((i) => i.request_id))
+      const { data: stuckDirect } = await supabase
+        .from('pay2new_transactions')
+        .select('request_id, user_id, user_role, total_debit, amount, charge, product_name, customer_number, customer_name, card_number, card_last4, created_at, review_reason')
+        .eq('status', 'pending')
+        .eq('review_required', false)
+        .ilike('request_id', 'SDS%')
+        .gte('created_at', since)
+        .lt('created_at', floorIso2)
+        .order('created_at', { ascending: false })
+        .limit(500)
+
+      for (const d of (stuckDirect || []) as any[]) {
+        if (seen2.has(d.request_id)) continue
+        const isPartner = d.user_role === 'partner'
+        items.push({
+          request_id: d.request_id,
+          owner: isPartner ? 'partner' : 'retailer',
+          amount: Number(d.total_debit) || (Number(d.amount || 0) + Number(d.charge || 0)),
+          reason: d.review_reason === 'failed_confirm_1' ? 'failed — confirming' : 'pending (vendor processing)',
+          created_at: d.created_at,
+          product_name: d.product_name || 'BBPS-2 CC',
+          name: null as string | null,
+          cc_card: d.card_last4 ? `****${String(d.card_last4).slice(-4)}` : maskCard(d.card_number),
+          cc_mobile: d.customer_number || null,
+          cc_name: d.customer_name || null,
+          _partnerId: isPartner ? d.user_id : null,
+          _retailerId: isPartner ? null : d.user_id,
+        })
+      }
+    } catch (e: any) {
+      console.error('[Admin Pay2New Review] direct-stuck-discovery error:', e?.message)
+    }
+
     // ── RESOLVE OWNER NAMES ───────────────────────────────────────────────────
     // Partners live in `partners` (keyed by id); retailers in `retailers` (keyed
     // by partner_id). Batch-resolve both, then attach a display name per item.
