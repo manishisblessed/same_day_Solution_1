@@ -9,13 +9,35 @@ import { fetchBbpsCategories, fetchBbpsBillers, fetchBill, payBill, BbpsBiller }
 import { ApiError } from '@/lib/api';
 import { formatCurrency, toPaise } from '@/utils/format';
 
+/** Format YYYY-MM-DD or ISO string → DD/MM/YYYY */
+const formatBillDate = (raw: string) => {
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return raw;
+  }
+};
+
+/** Red highlight if due within 3 days */
+const isDueSoon = (raw: string) => {
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return false;
+    return d.getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
+  } catch {
+    return false;
+  }
+};
+
 export const BbpsScreen: React.FC = () => {
   const nav = useNavigation();
   const qc = useQueryClient();
   const [category, setCategory] = useState<string>('');
   const [biller, setBiller] = useState<BbpsBiller | null>(null);
   const [consumer, setConsumer] = useState('');
-  const [bill, setBill] = useState<{ amount: number; name?: string; reqId?: string } | null>(null);
+  const [bill, setBill] = useState<{ amount: number; name?: string; reqId?: string; dueDate?: string; billDate?: string } | null>(null);
   const [fetching, setFetching] = useState(false);
   const [tpinOpen, setTpinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -34,10 +56,14 @@ export const BbpsScreen: React.FC = () => {
     try {
       const res = await fetchBill({ biller_id: biller.biller_id, consumer_number: consumer.trim() });
       const amt = Number(res?.bill?.amount ?? res?.data?.billerResponse?.amount ?? 0);
+      const rawDue = res?.bill?.due_date || res?.data?.billerResponse?.dueDate;
+      const rawBill = res?.bill?.bill_date || res?.data?.billerResponse?.billDate;
       setBill({
         amount: isNaN(amt) ? 0 : amt / (amt > 100000 ? 100 : 1),
         name: res?.bill?.customerName || res?.data?.billerResponse?.customerName,
         reqId: res.reqId,
+        dueDate: rawDue || undefined,
+        billDate: rawBill || undefined,
       });
     } catch (e) {
       Alert.alert('Bill fetch failed', e instanceof ApiError ? e.message : 'Could not fetch bill.');
@@ -117,8 +143,22 @@ export const BbpsScreen: React.FC = () => {
           <Button title="Fetch Bill" variant="outline" icon="search-outline" loading={fetching} onPress={onFetchBill} />
           {bill && (
             <View style={styles.billBox}>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>{bill.name || 'Bill amount'}</Text>
+              {!!bill.name && <Text style={[typography.captionMedium, { color: colors.textSecondary, marginBottom: 2 }]}>{bill.name}</Text>}
               <Text style={[typography.h1, { color: colors.textPrimary }]}>{formatCurrency(bill.amount)}</Text>
+              <View style={styles.billMeta}>
+                {!!bill.billDate && (
+                  <View style={styles.billMetaItem}>
+                    <Text style={[typography.caption, { color: colors.textSecondary }]}>Bill Date</Text>
+                    <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>{formatBillDate(bill.billDate)}</Text>
+                  </View>
+                )}
+                {!!bill.dueDate && (
+                  <View style={[styles.billMetaItem, !!bill.billDate && { borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: spacing.sm }]}>
+                    <Text style={[typography.caption, { color: colors.textSecondary }]}>Due Date</Text>
+                    <Text style={[typography.captionMedium, { color: isDueSoon(bill.dueDate) ? colors.danger[500] : colors.textPrimary }]}>{formatBillDate(bill.dueDate)}</Text>
+                  </View>
+                )}
+              </View>
             </View>
           )}
         </Card>
@@ -137,5 +177,7 @@ export const BbpsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   label: { ...typography.captionMedium, color: colors.textPrimary, marginBottom: spacing.sm },
   billerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  billMeta: { flexDirection: 'row', marginTop: spacing.sm, gap: spacing.sm },
+  billMetaItem: { flex: 1, alignItems: 'center', gap: 2 },
   billBox: { marginTop: spacing.md, backgroundColor: colors.primary[50], borderRadius: radius.base, padding: spacing.base, alignItems: 'center' },
 });

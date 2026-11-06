@@ -109,7 +109,9 @@ function addSecurityHeaders(response: NextResponse): void {
     `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
     `font-src 'self' https://fonts.gstatic.com data:`,
     `img-src 'self' data: blob: https://*.supabase.co`,
-    `connect-src 'self' https://*.supabase.co https://*.amazonaws.com https://challenges.cloudflare.com https://api.samedaysolution.in wss://*.supabase.co https://*.ingest.de.sentry.io`,
+    // Local biometric RD Service (Mantra/Morpho/etc.) runs on 127.0.0.1 over HTTP/HTTPS.
+    // AEPS fingerprint capture calls these loopback ports from the browser.
+    `connect-src 'self' https://*.supabase.co https://*.amazonaws.com https://challenges.cloudflare.com https://api.samedaysolution.in wss://*.supabase.co https://*.ingest.de.sentry.io https://127.0.0.1:* http://127.0.0.1:* https://localhost:* http://localhost:*`,
     `frame-src https://challenges.cloudflare.com`,
     `frame-ancestors 'none'`,
     `form-action 'self'`,
