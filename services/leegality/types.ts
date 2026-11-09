@@ -3,6 +3,8 @@ export interface LeegalityInvitee {
   email?: string
   phone?: string
   signUrl?: string
+  /** Sequential signing order (1 = first, 2 = second, etc.) */
+  signingOrder?: number
 }
 
 export interface LeegalityCreateRequest {

@@ -14,12 +14,19 @@ import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport'
 import { getEnv } from '@/lib/env'
 
+export interface EmailAttachment {
+  filename: string
+  content: Buffer | string
+  contentType?: string
+}
+
 export interface SendEmailArgs {
   to: string | string[]
   subject: string
   html: string
   from?: string
   replyTo?: string
+  attachments?: EmailAttachment[]
 }
 
 export interface SendEmailResult {
@@ -60,6 +67,13 @@ async function sendViaResend(args: SendEmailArgs, apiKey: string): Promise<SendE
         subject: args.subject,
         html: args.html,
         reply_to: args.replyTo,
+        ...(args.attachments?.length && {
+          attachments: args.attachments.map((a) => ({
+            filename: a.filename,
+            content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+            content_type: a.contentType || 'application/pdf',
+          })),
+        }),
       }),
     })
 
@@ -96,6 +110,13 @@ async function sendViaSmtp(args: SendEmailArgs): Promise<SendEmailResult> {
       subject: args.subject,
       html: args.html,
       replyTo: args.replyTo,
+      ...(args.attachments?.length && {
+        attachments: args.attachments.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType || 'application/pdf',
+        })),
+      }),
     })
     return { ok: true, provider: 'smtp', id: info.messageId }
   } catch (err: any) {

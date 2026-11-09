@@ -116,7 +116,13 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
     const fileBase64 = pdfBuffer.toString('base64')
     const irn = `SDS-MSA-${invite.id.substring(0, 8).toUpperCase()}-${Date.now()}`
 
-    // Send to Leegality for eSigning
+    // Send to Leegality for eSigning — sequential: partner signs first, then company
+    const COMPANY_SIGNATORY = {
+      name: 'Manish Kumar',
+      email: 'manish_kumar@samedaysolution.in',
+      phone: '7399599958',
+    }
+
     const result = await createSigningRequest({
       profileId: getLeegalityWorkflowId(),
       invitees: [
@@ -124,6 +130,11 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
           name,
           email: invite.email || undefined,
           phone: invite.phone || undefined,
+          signingOrder: 1,
+        },
+        {
+          ...COMPANY_SIGNATORY,
+          signingOrder: 2,
         },
       ],
       file: {
@@ -148,17 +159,19 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
 
     if (doc && result.invitees?.length) {
       await supabase.from('esign_invitees').insert(
-        result.invitees.map((inv) => ({
+        result.invitees.map((inv, idx) => ({
           document_id: doc.id,
           name: inv.name,
           email: inv.email || null,
           phone: inv.phone || null,
           sign_url: inv.signUrl,
           status: 'pending',
+          signing_order: idx + 1,
         }))
       )
     }
 
+    // Return the partner's signing URL (first invitee)
     const signUrl = result.invitees?.[0]?.signUrl
     return NextResponse.json({
       success: true,
