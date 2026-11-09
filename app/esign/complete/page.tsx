@@ -12,7 +12,16 @@ export default function EsignCompletePage() {
       setCountdown((c) => {
         if (c <= 1) {
           clearInterval(timer)
-          // Try to close this tab (works if opened via window.open)
+          // Redirect back to onboarding page if we have a return URL
+          try {
+            const returnUrl = localStorage.getItem('esign_return_url')
+            if (returnUrl) {
+              localStorage.removeItem('esign_return_url')
+              window.location.href = returnUrl
+              return 0
+            }
+          } catch {}
+          // Otherwise try to close this tab (works if opened via window.open)
           window.close()
           return 0
         }
@@ -58,7 +67,17 @@ export default function EsignCompletePage() {
           </p>
         ) : (
           <button
-            onClick={() => window.close()}
+            onClick={() => {
+              try {
+                const returnUrl = localStorage.getItem('esign_return_url')
+                if (returnUrl) {
+                  localStorage.removeItem('esign_return_url')
+                  window.location.href = returnUrl
+                  return
+                }
+              } catch {}
+              window.close()
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
           >
             <ArrowLeft className="h-4 w-4" /> Return to Onboarding

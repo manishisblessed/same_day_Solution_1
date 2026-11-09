@@ -1554,6 +1554,8 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
         setEsignStatus('IN PROGRESS')
         // Start polling for completion
         esignPollRef.current = setInterval(checkEsignStatus, 8000)
+        // Save return URL so /esign/complete can redirect back
+        try { localStorage.setItem('esign_return_url', window.location.href) } catch {}
         // Open signing URL in new tab
         window.open(r.signUrl, '_blank')
       } else if (r.alreadySigned) {
@@ -1570,8 +1572,8 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
 
   function openSignUrl() {
     if (signUrl) {
+      try { localStorage.setItem('esign_return_url', window.location.href) } catch {}
       window.open(signUrl, '_blank')
-      // Start polling if not already
       if (!esignPollRef.current) {
         esignPollRef.current = setInterval(checkEsignStatus, 8000)
       }

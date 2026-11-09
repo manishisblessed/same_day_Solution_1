@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, upsertVerification } from '@/lib/onboarding/invites'
+import { getDocumentDetails } from '@/services/leegality/client'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/onboard/[token]/esign/status
  * Returns the current eSigning status for this onboarding invite.
+ * Proactively syncs with Leegality API if local DB hasn't been updated by webhook.
  */
 export async function GET(_request: NextRequest, { params }: { params: { token: string } }) {
   try {
@@ -28,16 +30,55 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
       return NextResponse.json({ initiated: false, status: null })
     }
 
-    const { data: invitees } = await supabase
+    let { data: invitees } = await supabase
       .from('esign_invitees')
       .select('name, email, phone, sign_url, status, sign_type, signed_at, signing_order')
       .eq('document_id', doc.id)
       .order('signing_order', { ascending: true })
 
-    // Check if the partner (signing_order=1) has individually signed,
-    // even if the overall document is still IN PROGRESS (waiting for company signatory)
-    const partnerInvitee = (invitees || []).find((i: any) => i.signing_order === 1)
-    const partnerSigned = partnerInvitee?.status === 'signed'
+    let partnerInvitee = (invitees || []).find((i: any) => i.signing_order === 1)
+    let partnerSigned = partnerInvitee?.status === 'signed'
+
+    // If partner hasn't signed in our DB but doc was initiated > 30s ago,
+    // proactively check Leegality API (webhook may have missed/delayed)
+    if (!partnerSigned && doc.status === 'IN PROGRESS') {
+      const ageMs = Date.now() - new Date(doc.created_at).getTime()
+      if (ageMs > 30_000) {
+        try {
+          const details = await getDocumentDetails(doc.leegality_document_id)
+          // Sync invitee statuses from Leegality
+          for (const leegalityInv of details.invitees || []) {
+            const isSigned = leegalityInv.status === 'signed' || !!leegalityInv.signedAt
+            if (isSigned && leegalityInv.signUrl) {
+              await supabase.from('esign_invitees').update({
+                status: 'signed',
+                sign_type: leegalityInv.signType || null,
+                signed_at: leegalityInv.signedAt || new Date().toISOString(),
+              }).eq('sign_url', leegalityInv.signUrl)
+            }
+          }
+          // Sync document status
+          if (details.status && details.status !== doc.status) {
+            await supabase.from('esign_documents').update({
+              status: details.status,
+              ...(details.file && { signed_file_url: details.file }),
+              ...(details.auditTrail && { audit_trail_url: details.auditTrail }),
+              updated_at: new Date().toISOString(),
+            }).eq('id', doc.id)
+          }
+          // Re-read invitees after sync
+          const { data: refreshed } = await supabase.from('esign_invitees')
+            .select('name, email, phone, sign_url, status, sign_type, signed_at, signing_order')
+            .eq('document_id', doc.id).order('signing_order', { ascending: true })
+          invitees = refreshed
+          partnerInvitee = (invitees || []).find((i: any) => i.signing_order === 1)
+          partnerSigned = partnerInvitee?.status === 'signed'
+          console.log(`[esign/status] Leegality sync: partnerSigned=${partnerSigned} docStatus=${details.status}`)
+        } catch (syncErr: any) {
+          console.warn('[esign/status] Leegality sync failed:', syncErr?.message)
+        }
+      }
+    }
 
     // Record verification when partner has signed (don't wait for both parties)
     if (partnerSigned || doc.status === 'COMPLETED') {
