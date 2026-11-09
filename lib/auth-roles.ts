@@ -67,6 +67,7 @@ export const FINANCE_TABS: Array<{ id: string; label: string }> = [
   { id: 'portal-management', label: 'Portal Management' },
   { id: 'legal-agreements', label: 'Legal Agreements' },
   { id: 'reversals', label: 'Reversals' },
+  { id: 'pay2new-reversals', label: 'BBPS-2 Reversals' },
 ]
 
 export const FINANCE_TAB_IDS = FINANCE_TABS.map((t) => t.id)

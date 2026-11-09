@@ -190,6 +190,7 @@ export default function AdminSettings() {
     { id: 'portal-management', label: 'Portal Management' },
     { id: 'legal-agreements', label: 'Legal Agreements' },
     { id: 'reversals', label: 'Reversals' },
+    { id: 'pay2new-reversals', label: 'BBPS-2 Reversals' },
     { id: 'pay2new-banks', label: 'Pay2New Banks' },
     { id: 'settings', label: 'Settings (grants full admin)' },
     { id: 'all', label: 'Select All' }
