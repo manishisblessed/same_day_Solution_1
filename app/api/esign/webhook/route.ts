@@ -76,6 +76,26 @@ export async function POST(request: NextRequest) {
           signed_at: new Date().toISOString(),
         })
         .eq('sign_url', invitee.signUrl)
+
+      // If this is the partner (signing_order=1), record verification immediately
+      // so onboarding can proceed without waiting for company signatory
+      if (updatedDoc?.invite_id) {
+        const { data: signedInvitee } = await supabase
+          .from('esign_invitees')
+          .select('signing_order')
+          .eq('sign_url', invitee.signUrl)
+          .maybeSingle()
+
+        if (signedInvitee?.signing_order === 1) {
+          await upsertVerification(supabase, {
+            inviteId: updatedDoc.invite_id,
+            type: 'PARTNER_AGREEMENT',
+            status: 'Success',
+            payload: { documentId, method: 'esign', signerOrder: 1 },
+          })
+          console.log(`[eSigning Webhook] Partner (order 1) signed — recorded PARTNER_AGREEMENT verification`)
+        }
+      }
     }
 
     // If the document is COMPLETED and linked to an onboarding invite,

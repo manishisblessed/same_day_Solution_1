@@ -30,12 +30,17 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
 
     const { data: invitees } = await supabase
       .from('esign_invitees')
-      .select('name, email, phone, sign_url, status, sign_type, signed_at')
+      .select('name, email, phone, sign_url, status, sign_type, signed_at, signing_order')
       .eq('document_id', doc.id)
+      .order('signing_order', { ascending: true })
 
-    // When polling detects completion, ensure the onboarding verification is recorded
-    // (backup in case the Leegality webhook was delayed or missed)
-    if (doc.status === 'COMPLETED') {
+    // Check if the partner (signing_order=1) has individually signed,
+    // even if the overall document is still IN PROGRESS (waiting for company signatory)
+    const partnerInvitee = (invitees || []).find((i: any) => i.signing_order === 1)
+    const partnerSigned = partnerInvitee?.status === 'signed'
+
+    // Record verification when partner has signed (don't wait for both parties)
+    if (partnerSigned || doc.status === 'COMPLETED') {
       await upsertVerification(supabase, {
         inviteId: invite.id,
         type: 'PARTNER_AGREEMENT',
@@ -47,6 +52,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
     return NextResponse.json({
       initiated: true,
       status: doc.status,
+      partnerSigned,
       documentId: doc.leegality_document_id,
       signedFileUrl: doc.signed_file_url,
       auditTrailUrl: doc.audit_trail_url,

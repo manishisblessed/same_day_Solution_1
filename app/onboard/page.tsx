@@ -1503,12 +1503,15 @@ function DeclarationStep({ api, reload, next, back, has, rejections, requiresUpl
     try {
       const r = await api('/esign/status', { method: 'GET' })
       if (r.initiated) {
-        setEsignStatus(r.status)
-        if (r.status === 'COMPLETED') {
+        // Partner signed individually OR full document completed → treat as done
+        if (r.partnerSigned || r.status === 'COMPLETED') {
+          setEsignStatus('COMPLETED')
           setAgreed(true)
           if (esignPollRef.current) clearInterval(esignPollRef.current)
+        } else {
+          setEsignStatus(r.status)
         }
-        if (r.invitees?.[0]?.sign_url && r.status !== 'COMPLETED') {
+        if (r.invitees?.[0]?.sign_url && !r.partnerSigned && r.status !== 'COMPLETED') {
           setSignUrl(r.invitees[0].sign_url)
         }
       }
