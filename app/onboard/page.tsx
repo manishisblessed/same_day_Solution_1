@@ -1710,7 +1710,7 @@ function Confetti() {
   )
 }
 
-function FinishStep({ api, invite, prefill, isResubmit, busy, setBusy, err, setErr }: StepProps) {
+function FinishStep({ api, invite, prefill, isResubmit, busy, setBusy, err, setErr, back }: StepProps) {
   const [form, setForm] = useState({
     name: prefill?.name || invite.name || '',
     address: prefill?.address || '',
@@ -1867,7 +1867,7 @@ function FinishStep({ api, invite, prefill, isResubmit, busy, setBusy, err, setE
         </div>
       </div>
       <p className="mt-1 text-xs text-gray-400">Name &amp; address are auto-filled from your verified KYC and can’t be edited. Password: 8-20 chars, with a letter, number and special character.</p>
-      <NavButtons onNext={submit} nextLabel="Submit Registration" nextDisabled={!form.name || !form.password} busy={busy} />
+      <NavButtons onBack={back} onNext={submit} nextLabel="Submit Registration" nextDisabled={!form.name || !form.password} busy={busy} />
     </div>
   )
 }
