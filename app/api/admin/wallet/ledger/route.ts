@@ -104,8 +104,8 @@ export async function GET(request: NextRequest) {
       if (serviceType && serviceType !== 'all') pq = pq.eq('service_type', serviceType)
       if (transactionType && transactionType !== 'all') pq = pq.eq('transaction_type', transactionType)
       if (status && status !== 'all') pq = pq.eq('status', status)
-      if (dateFrom) pq = pq.gte('created_at', `${dateFrom}T00:00:00`)
-      if (dateTo) pq = pq.lte('created_at', `${dateTo}T23:59:59`)
+      if (dateFrom) pq = pq.gte('created_at', dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00+05:30`)
+      if (dateTo)   pq = pq.lte('created_at', dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59+05:30`)
       if (q) {
         const relatedRefIds = await resolveRelatedRefIds(supabase, q)
         pq = pq.or(buildLedgerSearchOr(q, relatedRefIds))
@@ -186,10 +186,10 @@ export async function GET(request: NextRequest) {
       query = query.eq('status', status)
     }
     if (dateFrom) {
-      query = query.gte('created_at', `${dateFrom}T00:00:00`)
+      query = query.gte('created_at', dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00+05:30`)
     }
     if (dateTo) {
-      query = query.lte('created_at', `${dateTo}T23:59:59`)
+      query = query.lte('created_at', dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59+05:30`)
     }
     if (q) {
       const relatedRefIds = await resolveRelatedRefIds(supabase, q)

@@ -67,6 +67,7 @@ import SubPartnersManagement from '@/components/partner/SubPartnersManagement'
 import UserPushPullReport from '@/components/UserPushPullReport'
 import ExportDropdown, { type ExportFormat } from '@/components/ExportDropdown'
 import { exportTable } from '@/lib/export/table-export'
+import { derivePay2NewReportStatus, hasPay2NewOrderStamp } from '@/lib/pay2new/display-status'
 
 type TabType = 'dashboard' | 'wallet' | 'services' | 'aeps' | 'bbps' | 'bbps-2' | 'credit-card' | 'credit-card-2' | 'api-payment' | 'payout' | 'settlement-2' | 'transactions' | 'ledger' | 'aeps-ledger' | 'push-pull' | 'mdr-schemes' | 'reports' | 'settings' | 'pos-machines' | 'subscriptions' | 'api-management' | 'analytics' | 'api-dashboard' | 'reconciliation' | 'sub-partners' | 'master-report' | 'master-schemes' | 'master-transactions'
 
@@ -2613,6 +2614,52 @@ function APIManagementTab({ user }: { user: any }) {
 }
 
 
+// ─── Pay2New description parser ────────────────────────────────────────────
+function parsePay2NewDesc(desc: string | null | undefined) {
+  if (!desc) return { billAmt: null, charge: null, card: null, mobile: null, product: null }
+  const billMatch   = desc.match(/₹([\d.]+)\s*\+\s*₹[\d.]+\s*charge/)
+  const chargeMatch = desc.match(/\+\s*₹([\d.]+)\s*charge/)
+  const parts       = desc.split('|')
+  const productRaw  = parts[1]?.trim() ?? null
+  return {
+    billAmt: billMatch?.[1]  ?? null,
+    charge:  chargeMatch?.[1] ?? null,
+    card:    desc.match(/Card:(\*+\d+)/)?.[1]  ?? null,
+    mobile:  desc.match(/Mob:(\d{10})/)?.[1]   ?? null,
+    product: productRaw ? productRaw.replace(/\+/g, ' ').replace(/\s+/g, ' ').trim() : null,
+  }
+}
+
+const P2N_STATUS_BADGE: Record<string, string> = {
+  green:  'bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-400',
+  red:    'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400',
+  yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+  gray:   'bg-gray-100   text-gray-800   dark:bg-gray-700      dark:text-gray-300',
+}
+
+function getPartnerSmartStatus(e: any): { label: string; color: string } {
+  const ref  = String(e.reference_id    || '')
+  const desc = String(e.description     || '')
+  const type = String(e.transaction_type || '')
+  const svc  = String(e.service_type    || '')
+  const raw  = String(e.status          || '')
+  if (ref.startsWith('CLAWBACK_'))            return { label: 'CORRECTED', color: 'purple' }
+  if (ref.startsWith('REFUND_') || type === 'REFUND') return { label: 'REFUNDED', color: 'orange' }
+  if (svc === 'pay2new' && type === 'DEBIT') {
+    const s = derivePay2NewReportStatus({ rawStatus: raw, hasOrderId: hasPay2NewOrderStamp(desc) })
+    if (s === 'success')  return { label: 'SUCCESS',  color: 'green'  }
+    if (s === 'failed')   return { label: 'FAILED',   color: 'red'    }
+    if (s === 'pending')  return { label: 'PENDING',  color: 'yellow' }
+    if (s === 'refunded') return { label: 'REFUNDED', color: 'orange' }
+  }
+  if (raw === 'completed' || raw === '') return { label: 'SUCCESS', color: 'green'  }
+  if (raw === 'failed')                  return { label: 'FAILED',  color: 'red'    }
+  if (raw === 'pending')                 return { label: 'PENDING', color: 'yellow' }
+  return { label: raw.toUpperCase(), color: 'gray' }
+}
+
 // Partner Ledger Tab - Full wallet transaction history
 function PartnerLedgerTab({ user }: { user: any }) {
   const { showToast } = useToast()
@@ -2623,7 +2670,9 @@ function PartnerLedgerTab({ user }: { user: any }) {
   const [total, setTotal] = useState(0)
   const pageSize = 25
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' })
+  const [timeFilter, setTimeFilter] = useState({ start: '', end: '' })
   const [typeFilter, setTypeFilter] = useState('all')
+  const [searchRef, setSearchRef] = useState('')
 
   const fetchLedger = useCallback(async () => {
     if (!user?.partner_id) return
@@ -2636,13 +2685,18 @@ function PartnerLedgerTab({ user }: { user: any }) {
         .order('created_at', { ascending: false })
 
       if (dateFilter.start) {
-        query = query.gte('created_at', dateFilter.start)
+        const t = timeFilter.start || '00:00'
+        query = query.gte('created_at', `${dateFilter.start}T${t}:00+05:30`)
       }
       if (dateFilter.end) {
-        query = query.lte('created_at', dateFilter.end + 'T23:59:59')
+        const t = timeFilter.end || '23:59'
+        query = query.lte('created_at', `${dateFilter.end}T${t}:59+05:30`)
       }
       if (typeFilter !== 'all') {
         query = query.eq('transaction_type', typeFilter)
+      }
+      if (searchRef.trim()) {
+        query = query.ilike('reference_id', `%${searchRef.trim()}%`)
       }
 
       const { data, count, error } = await query
@@ -2659,7 +2713,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
     } finally {
       setLoading(false)
     }
-  }, [user?.partner_id, page, dateFilter, typeFilter])
+  }, [user?.partner_id, page, dateFilter, timeFilter, typeFilter, searchRef])
 
   useEffect(() => {
     fetchLedger()
@@ -2667,7 +2721,7 @@ function PartnerLedgerTab({ user }: { user: any }) {
 
   useEffect(() => {
     setPage(1)
-  }, [dateFilter, typeFilter])
+  }, [dateFilter, timeFilter, typeFilter, searchRef])
 
   const [exportingFmt, setExportingFmt] = useState<ExportFormat | null>(null)
 
@@ -2688,16 +2742,24 @@ function PartnerLedgerTab({ user }: { user: any }) {
       const { data, error } = await q
       if (error) throw error
 
-      const headers = ['Date & Time', 'Type', 'Description', 'Credit', 'Debit', 'Balance', 'Status']
-      const rows = (data || []).map((e: any) => [
-        new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-        (e.transaction_type || '-').replace(/_/g, ' '),
-        cleanDescription(e.description) || e.reference_id || '-',
-        Number(e.credit) > 0 ? Number(e.credit).toFixed(2) : '',
-        Number(e.debit) > 0 ? Number(e.debit).toFixed(2) : '',
-        Number(e.closing_balance || 0).toFixed(2),
-        e.status || 'completed',
-      ])
+      const headers = ['Date & Time', 'Type', 'Request ID', 'Card', 'Mobile', 'Bill Amount', 'Charge', 'Credit', 'Debit', 'Balance', 'Status']
+      const rows = (data || []).map((e: any) => {
+        const p  = parsePay2NewDesc(e.description)
+        const st = getPartnerSmartStatus(e)
+        return [
+          new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          (e.transaction_type || '-').replace(/_/g, ' '),
+          e.reference_id || '-',
+          p.card   || '-',
+          p.mobile || '-',
+          p.billAmt ? `₹${Number(p.billAmt).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-',
+          p.charge  ? `₹${Number(p.charge).toLocaleString('en-IN',  { minimumFractionDigits: 2 })}` : '-',
+          Number(e.credit) > 0 ? Number(e.credit).toFixed(2) : '',
+          Number(e.debit)  > 0 ? Number(e.debit).toFixed(2)  : '',
+          Number(e.closing_balance || 0).toFixed(2),
+          st.label,
+        ]
+      })
       exportTable({ format: fmt, title: 'Partner Wallet Ledger', filename: 'partner-wallet-ledger', headers, rows, themeColor: '#7C3AED' })
     } catch (err) {
       console.error('Error exporting ledger:', err)
@@ -2740,6 +2802,18 @@ function PartnerLedgerTab({ user }: { user: any }) {
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-wrap gap-3">
+          {/* Search by Request ID */}
+          <div className="w-full sm:w-auto sm:flex-1 min-w-[200px]">
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Search by Request ID / Card / Mobile</label>
+            <input
+              type="text"
+              placeholder="e.g. SDS1793613828113 or ****6001"
+              value={searchRef}
+              onChange={(e) => setSearchRef(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+            />
+          </div>
+          {/* From Date + Time */}
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">From Date</label>
             <input
@@ -2750,6 +2824,17 @@ function PartnerLedgerTab({ user }: { user: any }) {
             />
           </div>
           <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">From Time (IST)</label>
+            <input
+              type="time"
+              value={timeFilter.start}
+              onChange={(e) => setTimeFilter({ ...timeFilter, start: e.target.value })}
+              disabled={!dateFilter.start}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-40"
+            />
+          </div>
+          {/* To Date + Time */}
+          <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To Date</label>
             <input
               type="date"
@@ -2758,6 +2843,17 @@ function PartnerLedgerTab({ user }: { user: any }) {
               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
             />
           </div>
+          <div>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">To Time (IST)</label>
+            <input
+              type="time"
+              value={timeFilter.end}
+              onChange={(e) => setTimeFilter({ ...timeFilter, end: e.target.value })}
+              disabled={!dateFilter.end}
+              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white disabled:opacity-40"
+            />
+          </div>
+          {/* Type */}
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
             <select
@@ -2770,10 +2866,10 @@ function PartnerLedgerTab({ user }: { user: any }) {
               ))}
             </select>
           </div>
-          {(dateFilter.start || dateFilter.end || typeFilter !== 'all') && (
+          {(dateFilter.start || dateFilter.end || typeFilter !== 'all' || searchRef) && (
             <div className="flex items-end">
               <button
-                onClick={() => { setDateFilter({ start: '', end: '' }); setTypeFilter('all') }}
+                onClick={() => { setDateFilter({ start: '', end: '' }); setTimeFilter({ start: '', end: '' }); setTypeFilter('all'); setSearchRef('') }}
                 className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               >
                 Clear filters
@@ -2802,48 +2898,86 @@ function PartnerLedgerTab({ user }: { user: any }) {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date & Time</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Description</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Transaction Details</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Bill / Charge</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Credit</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Debit</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Total Debit</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Balance</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {ledgerEntries.map((entry) => (
+                  {ledgerEntries.map((entry) => {
+                    const p  = parsePay2NewDesc(entry.description)
+                    const st = getPartnerSmartStatus(entry)
+                    return (
                     <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
-                        {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                      {/* Date & Time */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-white">
+                          {new Date(entry.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(entry.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </div>
                       </td>
+                      {/* Type */}
                       <td className="px-4 py-3 text-sm">
                         <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
                           {entry.transaction_type?.replace(/_/g, ' ') || 'N/A'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-[250px] truncate" title={cleanDescription(entry.description) || ''}>
-                        {cleanDescription(entry.description) || entry.reference_id || '-'}
+                      {/* Transaction Details: Request ID + Card + Mobile + Product */}
+                      <td className="px-4 py-3 max-w-[220px]">
+                        <div className="font-mono text-xs text-purple-700 dark:text-purple-400 font-semibold truncate" title={entry.reference_id || ''}>
+                          {entry.reference_id || '—'}
+                        </div>
+                        {(p.card || p.mobile) && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            {p.card   && <span className="font-mono mr-2">{p.card}</span>}
+                            {p.mobile && <span>{p.mobile}</span>}
+                          </div>
+                        )}
+                        <div className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5" title={cleanDescription(entry.description) || ''}>
+                          {p.product || cleanDescription(entry.description) || ''}
+                        </div>
                       </td>
+                      {/* Bill Amount + Charge */}
+                      <td className="px-4 py-3 text-right">
+                        {p.billAmt ? (
+                          <>
+                            <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                              ₹{Number(p.billAmt).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+                            {p.charge && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                +₹{Number(p.charge).toLocaleString('en-IN', { minimumFractionDigits: 2 })} charge
+                              </div>
+                            )}
+                          </>
+                        ) : <span className="text-gray-400 text-sm">—</span>}
+                      </td>
+                      {/* Credit */}
                       <td className="px-4 py-3 text-sm text-right font-medium text-green-600 dark:text-green-400">
                         {entry.credit > 0 ? `₹${Number(entry.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
                       </td>
+                      {/* Total Debit */}
                       <td className="px-4 py-3 text-sm text-right font-medium text-red-600 dark:text-red-400">
                         {entry.debit > 0 ? `₹${Number(entry.debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
                       </td>
+                      {/* Balance */}
                       <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900 dark:text-white">
                         ₹{Number(entry.closing_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
+                      {/* Smart Status */}
                       <td className="px-4 py-3 text-center">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          entry.status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                          entry.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
-                          entry.status === 'failed' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
-                          'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                        }`}>
-                          {entry.status || 'completed'}
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${P2N_STATUS_BADGE[st.color] ?? P2N_STATUS_BADGE.gray}`}>
+                          {st.label}
                         </span>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

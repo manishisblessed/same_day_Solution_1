@@ -10,6 +10,22 @@ import { AppStackParamList } from '@/navigation/types';
 import { ApiError } from '@/lib/api';
 import { formatCurrency } from '@/utils/format';
 
+const fmtDate = (raw: string) => {
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch { return raw; }
+};
+
+const isDueSoon = (raw: string) => {
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return false;
+    return d.getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
+  } catch { return false; }
+};
+
 /** Mirrors the web Pay2NewServiceHub — service_id per Pay2New servicesList. */
 interface P2NService {
   id: string;
@@ -76,7 +92,7 @@ export const Pay2NewScreen: React.FC = () => {
   const [mobile, setMobile] = useState('');
   const [amount, setAmount] = useState('');
   const [billRef, setBillRef] = useState<string | null>(null);
-  const [billInfo, setBillInfo] = useState<{ name?: string; due?: number } | null>(null);
+  const [billInfo, setBillInfo] = useState<{ name?: string; due?: number; dueDate?: string; billDate?: string } | null>(null);
   const [bbpsFallback, setBbpsFallback] = useState<string | null>(null);
   const [pan, setPan] = useState('');
   const [busy, setBusy] = useState(false);
@@ -171,7 +187,12 @@ export const Pay2NewScreen: React.FC = () => {
       setBbpsFallback(res.fallback === 'bbps' && res.biller_id ? res.biller_id : null);
       const d = res.data || {};
       const due = Number(d.amount ?? d.due_amount ?? d.bill_amount ?? 0);
-      setBillInfo({ name: d.customer_name || d.customerName, due: due > 0 ? due : undefined });
+      setBillInfo({
+        name: d.customer_name || d.customerName,
+        due: due > 0 ? due : undefined,
+        dueDate: d.dueDate || d.bill_due_date || d.due_date || undefined,
+        billDate: d.billDate || d.bill_date || undefined,
+      });
     } catch (e: any) {
       Alert.alert('Fetch failed', e instanceof ApiError ? e.message : e?.message || 'Could not fetch bill.');
     } finally {
@@ -385,11 +406,60 @@ export const Pay2NewScreen: React.FC = () => {
         )}
 
         {billInfo && (
-          <View style={styles.billBox}>
-            {billInfo.name ? <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>{billInfo.name}</Text> : null}
-            <Text style={[typography.caption, { color: colors.textSecondary }]}>
-              {billInfo.due ? `Due amount ${formatCurrency(billInfo.due)}` : 'Bill fetched — enter the amount to pay'}
-            </Text>
+          <View style={styles.billCard}>
+            {/* Status indicator */}
+            <View style={styles.billCardHeader}>
+              <View style={styles.billCardIcon}>
+                <Ionicons name="checkmark-circle" size={20} color={colors.success[500]} />
+              </View>
+              <Text style={[typography.captionMedium, { color: colors.success[600] }]}>Bill Fetched</Text>
+            </View>
+
+            {/* Customer name */}
+            {!!billInfo.name && (
+              <View style={styles.billCardRow}>
+                <Text style={[typography.caption, { color: colors.textSecondary }]}>Customer Name</Text>
+                <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>{billInfo.name}</Text>
+              </View>
+            )}
+
+            {/* Due amount — prominent */}
+            {billInfo.due != null && billInfo.due > 0 && (
+              <View style={styles.billAmountRow}>
+                <Text style={[typography.caption, { color: colors.textSecondary }]}>Due Amount</Text>
+                <Text style={[typography.h2, { color: colors.primary[700] }]}>{formatCurrency(billInfo.due)}</Text>
+              </View>
+            )}
+
+            {/* Due date & Bill date row */}
+            {(!!billInfo.dueDate || !!billInfo.billDate) && (
+              <View style={styles.billDatesRow}>
+                {!!billInfo.billDate && (
+                  <View style={styles.billDateItem}>
+                    <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                    <View style={{ marginLeft: 6 }}>
+                      <Text style={[typography.small, { color: colors.textSecondary }]}>Bill Date</Text>
+                      <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>{fmtDate(billInfo.billDate)}</Text>
+                    </View>
+                  </View>
+                )}
+                {!!billInfo.dueDate && (
+                  <View style={[styles.billDateItem, !!billInfo.billDate && styles.billDateItemBorder]}>
+                    <Ionicons name="alarm-outline" size={14} color={isDueSoon(billInfo.dueDate) ? colors.danger[500] : colors.textSecondary} />
+                    <View style={{ marginLeft: 6 }}>
+                      <Text style={[typography.small, { color: colors.textSecondary }]}>Due Date</Text>
+                      <Text style={[typography.captionMedium, { color: isDueSoon(billInfo.dueDate) ? colors.danger[600] : colors.textPrimary }]}>{fmtDate(billInfo.dueDate)}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {!billInfo.due && (
+              <Text style={[typography.caption, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                Bill fetched — enter the amount to pay below
+              </Text>
+            )}
           </View>
         )}
 
@@ -480,7 +550,28 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginRight: spacing.md,
   },
   selBiller: { flexDirection: 'row', alignItems: 'center' },
-  billBox: { backgroundColor: colors.secondary[50], borderRadius: radius.base, padding: spacing.base, marginBottom: spacing.md },
+  billCard: {
+    backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.base,
+    marginBottom: spacing.md, borderWidth: 1, borderColor: colors.success[100],
+    ...shadow.sm,
+  },
+  billCardHeader: {
+    flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm,
+    paddingBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border,
+  },
+  billCardIcon: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.success[50],
+    alignItems: 'center', justifyContent: 'center', marginRight: 8,
+  },
+  billCardRow: { marginBottom: spacing.sm },
+  billAmountRow: {
+    backgroundColor: colors.primary[50], borderRadius: radius.md,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.base,
+    alignItems: 'center', marginBottom: spacing.sm,
+  },
+  billDatesRow: { flexDirection: 'row', gap: spacing.sm },
+  billDateItem: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs },
+  billDateItemBorder: { borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: spacing.sm },
   chargeRow: { flexDirection: 'row', alignItems: 'center', marginTop: -6, marginBottom: 4 },
   panBox: { marginTop: spacing.md, backgroundColor: colors.warning[50], borderRadius: radius.base, padding: spacing.md, borderWidth: 1, borderColor: colors.warning[100] },
   panHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },

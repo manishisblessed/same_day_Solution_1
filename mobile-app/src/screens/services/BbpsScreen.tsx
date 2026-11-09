@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'rea
 import { useNavigation } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, spacing, typography } from '@/theme';
+import { colors, radius, spacing, typography, shadow } from '@/theme';
 import { Screen, Card, Input, Button, Pill, Loading, EmptyState, TpinSheet, TransactionReceiptModal, ReceiptData } from '@/components';
 import { fetchBbpsCategories, fetchBbpsBillers, fetchBill, payBill, BbpsBiller } from '@/api/bbps';
 import { ApiError } from '@/lib/api';
@@ -142,23 +142,52 @@ export const BbpsScreen: React.FC = () => {
           <Input label="Consumer Number" icon="person-outline" value={consumer} onChangeText={(t) => { setConsumer(t); setBill(null); }} placeholder="Enter consumer / account number" />
           <Button title="Fetch Bill" variant="outline" icon="search-outline" loading={fetching} onPress={onFetchBill} />
           {bill && (
-            <View style={styles.billBox}>
-              {!!bill.name && <Text style={[typography.captionMedium, { color: colors.textSecondary, marginBottom: 2 }]}>{bill.name}</Text>}
-              <Text style={[typography.h1, { color: colors.textPrimary }]}>{formatCurrency(bill.amount)}</Text>
-              <View style={styles.billMeta}>
-                {!!bill.billDate && (
-                  <View style={styles.billMetaItem}>
-                    <Text style={[typography.caption, { color: colors.textSecondary }]}>Bill Date</Text>
-                    <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>{formatBillDate(bill.billDate)}</Text>
-                  </View>
-                )}
-                {!!bill.dueDate && (
-                  <View style={[styles.billMetaItem, !!bill.billDate && { borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: spacing.sm }]}>
-                    <Text style={[typography.caption, { color: colors.textSecondary }]}>Due Date</Text>
-                    <Text style={[typography.captionMedium, { color: isDueSoon(bill.dueDate) ? colors.danger[500] : colors.textPrimary }]}>{formatBillDate(bill.dueDate)}</Text>
-                  </View>
-                )}
+            <View style={styles.billCard}>
+              {/* Header */}
+              <View style={styles.billCardHeader}>
+                <View style={styles.billCardIcon}>
+                  <Ionicons name="checkmark-circle" size={20} color={colors.success[500]} />
+                </View>
+                <Text style={[typography.captionMedium, { color: colors.success[600] }]}>Bill Fetched</Text>
               </View>
+
+              {/* Customer name */}
+              {!!bill.name && (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={[typography.caption, { color: colors.textSecondary }]}>Customer Name</Text>
+                  <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>{bill.name}</Text>
+                </View>
+              )}
+
+              {/* Amount — prominent */}
+              <View style={styles.billAmountRow}>
+                <Text style={[typography.caption, { color: colors.textSecondary }]}>Due Amount</Text>
+                <Text style={[typography.h2, { color: colors.primary[700] }]}>{formatCurrency(bill.amount)}</Text>
+              </View>
+
+              {/* Due date & Bill date */}
+              {(!!bill.dueDate || !!bill.billDate) && (
+                <View style={styles.billDatesRow}>
+                  {!!bill.billDate && (
+                    <View style={styles.billDateItem}>
+                      <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                      <View style={{ marginLeft: 6 }}>
+                        <Text style={[typography.small, { color: colors.textSecondary }]}>Bill Date</Text>
+                        <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>{formatBillDate(bill.billDate)}</Text>
+                      </View>
+                    </View>
+                  )}
+                  {!!bill.dueDate && (
+                    <View style={[styles.billDateItem, !!bill.billDate && styles.billDateItemBorder]}>
+                      <Ionicons name="alarm-outline" size={14} color={isDueSoon(bill.dueDate) ? colors.danger[500] : colors.textSecondary} />
+                      <View style={{ marginLeft: 6 }}>
+                        <Text style={[typography.small, { color: colors.textSecondary }]}>Due Date</Text>
+                        <Text style={[typography.captionMedium, { color: isDueSoon(bill.dueDate) ? colors.danger[600] : colors.textPrimary }]}>{formatBillDate(bill.dueDate)}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
           )}
         </Card>
@@ -177,7 +206,25 @@ export const BbpsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   label: { ...typography.captionMedium, color: colors.textPrimary, marginBottom: spacing.sm },
   billerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.base, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  billMeta: { flexDirection: 'row', marginTop: spacing.sm, gap: spacing.sm },
-  billMetaItem: { flex: 1, alignItems: 'center', gap: 2 },
-  billBox: { marginTop: spacing.md, backgroundColor: colors.primary[50], borderRadius: radius.base, padding: spacing.base, alignItems: 'center' },
+  billCard: {
+    backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.base,
+    marginTop: spacing.md, borderWidth: 1, borderColor: colors.success[100],
+    ...shadow.sm,
+  },
+  billCardHeader: {
+    flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm,
+    paddingBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border,
+  },
+  billCardIcon: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: colors.success[50],
+    alignItems: 'center', justifyContent: 'center', marginRight: 8,
+  },
+  billAmountRow: {
+    backgroundColor: colors.primary[50], borderRadius: radius.md,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.base,
+    alignItems: 'center', marginBottom: spacing.sm,
+  },
+  billDatesRow: { flexDirection: 'row', gap: spacing.sm },
+  billDateItem: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs },
+  billDateItemBorder: { borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: spacing.sm },
 });

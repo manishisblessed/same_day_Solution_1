@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
 import { cleanDescription, parseBankName } from '@/lib/format'
+import { derivePay2NewReportStatus, hasPay2NewOrderStamp } from '@/lib/pay2new/display-status'
 import {
   RefreshCw, Search, ChevronLeft, ChevronRight, BookOpen,
   FileSpreadsheet, FileText, Loader2,
@@ -36,6 +37,53 @@ type UserSearchResult = {
   business_name: string | null
   role: string
   status: string | null
+}
+
+// ─── Pay2New description parser ────────────────────────────────────────────
+function parsePay2NewDesc(desc: string | null | undefined) {
+  if (!desc) return { billAmt: null, charge: null, card: null, mobile: null, product: null }
+  const billMatch   = desc.match(/₹([\d.]+)\s*\+\s*₹[\d.]+\s*charge/)
+  const chargeMatch = desc.match(/\+\s*₹([\d.]+)\s*charge/)
+  const parts       = desc.split('|')
+  const productRaw  = parts[1]?.trim() ?? null
+  return {
+    billAmt: billMatch?.[1]  ?? null,
+    charge:  chargeMatch?.[1] ?? null,
+    card:    desc.match(/Card:(\*+\d+)/)?.[1]  ?? null,
+    mobile:  desc.match(/Mob:(\d{10})/)?.[1]   ?? null,
+    product: productRaw ? productRaw.replace(/\+/g, ' ').replace(/\s+/g, ' ').trim() : null,
+  }
+}
+
+// ─── Smart status badge ─────────────────────────────────────────────────────
+const STATUS_BADGE: Record<string, string> = {
+  green:  'bg-green-100  text-green-800  dark:bg-green-900/30  dark:text-green-400',
+  red:    'bg-red-100    text-red-800    dark:bg-red-900/30    dark:text-red-400',
+  yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+  gray:   'bg-gray-100   text-gray-800   dark:bg-gray-700      dark:text-gray-300',
+}
+
+function getSmartStatus(e: LedgerRow): { label: string; color: string } {
+  const ref  = String(e.reference_id    || '')
+  const desc = String(e.description     || '')
+  const type = String(e.transaction_type || '')
+  const svc  = String(e.service_type    || '')
+  const raw  = String(e.status          || '')
+  if (ref.startsWith('CLAWBACK_'))            return { label: 'CORRECTED', color: 'purple' }
+  if (ref.startsWith('REFUND_') || type === 'REFUND') return { label: 'REFUNDED', color: 'orange' }
+  if (svc === 'pay2new' && type === 'DEBIT') {
+    const s = derivePay2NewReportStatus({ rawStatus: raw, hasOrderId: hasPay2NewOrderStamp(desc) })
+    if (s === 'success')  return { label: 'SUCCESS',  color: 'green'  }
+    if (s === 'failed')   return { label: 'FAILED',   color: 'red'    }
+    if (s === 'pending')  return { label: 'PENDING',  color: 'yellow' }
+    if (s === 'refunded') return { label: 'REFUNDED', color: 'orange' }
+  }
+  if (raw === 'completed' || raw === '') return { label: 'SUCCESS', color: 'green'  }
+  if (raw === 'failed')                  return { label: 'FAILED',  color: 'red'    }
+  if (raw === 'pending')                 return { label: 'PENDING', color: 'yellow' }
+  return { label: raw.toUpperCase(), color: 'gray' }
 }
 
 const SERVICE_TYPES = [
@@ -79,6 +127,8 @@ export default function AdminWalletLedgerTab() {
   const [status, setStatus] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [timeFrom, setTimeFrom] = useState('')
+  const [timeTo, setTimeTo] = useState('')
   const [q, setQ] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   const [exporting, setExporting] = useState<'csv' | 'excel' | null>(null)
@@ -122,11 +172,17 @@ export default function AdminWalletLedgerTab() {
     if (serviceType) params.set('service_type', serviceType)
     if (transactionType.trim()) params.set('transaction_type', transactionType.trim())
     if (status) params.set('status', status)
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo) params.set('date_to', dateTo)
+    const dateFromVal = dateFrom
+      ? (timeFrom ? `${dateFrom}T${timeFrom}:00+05:30` : dateFrom)
+      : ''
+    const dateToVal = dateTo
+      ? (timeTo ? `${dateTo}T${timeTo}:59+05:30` : dateTo)
+      : ''
+    if (dateFromVal) params.set('date_from', dateFromVal)
+    if (dateToVal)   params.set('date_to',   dateToVal)
     if (debouncedQ.trim()) params.set('q', debouncedQ.trim())
     return params
-  }, [scope, walletType, selectedUser, userRole, serviceType, transactionType, status, dateFrom, dateTo, debouncedQ])
+  }, [scope, walletType, selectedUser, userRole, serviceType, transactionType, status, dateFrom, dateTo, timeFrom, timeTo, debouncedQ])
 
   const fetchLedger = useCallback(async () => {
     setLoading(true)
@@ -156,7 +212,7 @@ export default function AdminWalletLedgerTab() {
 
   useEffect(() => {
     setPage(1)
-  }, [scope, selectedUser, userRole, walletType, serviceType, transactionType, status, dateFrom, dateTo, debouncedQ])
+  }, [scope, selectedUser, userRole, walletType, serviceType, transactionType, status, dateFrom, dateTo, timeFrom, timeTo, debouncedQ])
 
   const handleExport = async (format: ExportFormat) => {
     setExporting(format)
@@ -305,12 +361,20 @@ export default function AdminWalletLedgerTab() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">From</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">From date</label>
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={inputCls} />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">To</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">From time (IST)</label>
+          <input type="time" value={timeFrom} onChange={(e) => setTimeFrom(e.target.value)} disabled={!dateFrom} className={`${inputCls} disabled:opacity-40`} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">To date</label>
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">To time (IST)</label>
+          <input type="time" value={timeTo} onChange={(e) => setTimeTo(e.target.value)} disabled={!dateTo} className={`${inputCls} disabled:opacity-40`} />
         </div>
         <div className="flex-1 min-w-[180px]">
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Search</label>
@@ -332,7 +396,7 @@ export default function AdminWalletLedgerTab() {
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead className="bg-gray-50 dark:bg-gray-900">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400">When</th>
@@ -342,67 +406,98 @@ export default function AdminWalletLedgerTab() {
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-400">Credit</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-400">Debit</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-400">Balance</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400">Description</th>
+                <th className="px-3 py-2 text-center text-xs font-semibold text-gray-600 dark:text-gray-400">Status</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400">Transaction Details</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 dark:text-gray-400">Bill / Charge</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {loading && entries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-10 text-center text-gray-500">
+                  <td colSpan={10} className="px-3 py-10 text-center text-gray-500">
                     <RefreshCw className="w-6 h-6 animate-spin inline-block mr-2" />
                     Loading…
                   </td>
                 </tr>
               ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-10 text-center text-gray-500">
+                  <td colSpan={10} className="px-3 py-10 text-center text-gray-500">
                     No ledger rows match your filters.
                   </td>
                 </tr>
               ) : (
-                entries.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
-                    <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                      {new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[180px]" title={e.user_name || e.retailer_id}>
-                        {e.user_name || e.retailer_id?.slice(0, 10) + '…'}
-                      </div>
-                      {e.partner_name && (
-                        <div className="text-gray-500 truncate max-w-[180px]" title={e.partner_name}>
-                          {e.partner_name}
+                entries.map((e) => {
+                  const p   = parsePay2NewDesc(e.description)
+                  const st  = getSmartStatus(e)
+                  return (
+                    <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
+                        {new Date(e.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        <div className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[160px]" title={e.user_name || e.retailer_id}>
+                          {e.user_name || e.retailer_id?.slice(0, 10) + '…'}
                         </div>
-                      )}
-                      <div className="text-gray-400 text-[10px]">{e.user_role || '—'}{e.wallet_type ? ` · ${e.wallet_type}` : ''}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{e.transaction_type || '—'}</td>
-                    <td className="px-3 py-2 text-xs">{e.service_type || '—'}</td>
-                    <td className="px-3 py-2 text-right text-xs text-green-600 dark:text-green-400">
-                      {Number(e.credit) > 0 ? `₹${Number(e.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs text-red-600 dark:text-red-400">
-                      {Number(e.debit) > 0 ? `₹${Number(e.debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">
-                      ₹
-                      {Number(e.closing_balance ?? 0).toLocaleString('en-IN', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="px-3 py-2 text-xs">{e.status || '—'}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 max-w-xs" title={cleanDescription(e.description)}>
-                      {parseBankName(e.description) && (
-                        <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-[10px] font-medium mb-0.5 mr-1">
-                          {parseBankName(e.description)}
+                        {e.partner_name && (
+                          <div className="text-gray-500 truncate max-w-[160px]" title={e.partner_name}>
+                            {e.partner_name}
+                          </div>
+                        )}
+                        <div className="text-gray-400 text-[10px]">{e.user_role || '—'}{e.wallet_type ? ` · ${e.wallet_type}` : ''}</div>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono text-gray-700 dark:text-gray-300">{e.transaction_type || '—'}</td>
+                      <td className="px-3 py-2 text-xs">{e.service_type || '—'}</td>
+                      <td className="px-3 py-2 text-right text-xs text-green-600 dark:text-green-400">
+                        {Number(e.credit) > 0 ? `₹${Number(e.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-red-600 dark:text-red-400">
+                        {Number(e.debit) > 0 ? `₹${Number(e.debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 dark:text-white">
+                        ₹{Number(e.closing_balance ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_BADGE[st.color] ?? STATUS_BADGE.gray}`}>
+                          {st.label}
                         </span>
-                      )}
-                      <span className="truncate block max-w-xs">{cleanDescription(e.description) || e.reference_id || '—'}</span>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-3 py-2 text-xs max-w-[220px]">
+                        {/* Request ID */}
+                        <div className="font-mono text-[10px] text-gray-500 dark:text-gray-400 truncate" title={e.reference_id || ''}>
+                          {e.reference_id || '—'}
+                        </div>
+                        {/* Card + Mobile */}
+                        {(p.card || p.mobile) && (
+                          <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                            {p.card && <span className="font-mono mr-2">{p.card}</span>}
+                            {p.mobile && <span>{p.mobile}</span>}
+                          </div>
+                        )}
+                        {/* Product / description */}
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate mt-0.5" title={cleanDescription(e.description) || ''}>
+                          {parseBankName(e.description)
+                            ? <span className="text-blue-600 dark:text-blue-400 mr-1">{parseBankName(e.description)}</span>
+                            : null}
+                          {p.product || cleanDescription(e.description) || ''}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs">
+                        {p.billAmt ? (
+                          <>
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              ₹{Number(p.billAmt).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+                            {p.charge && (
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                +₹{Number(p.charge).toLocaleString('en-IN', { minimumFractionDigits: 2 })} charge
+                              </div>
+                            )}
+                          </>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
