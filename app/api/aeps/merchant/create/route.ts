@@ -7,7 +7,9 @@ import { namesMatch } from '@/lib/kyc/name-match';
 import { bankAccountHash } from '@/lib/kyc/bank-hash';
 import { isEkycMockMode } from '@/services/ekyc';
 import { getAEPSClient } from '@/services/aeps';
-import { getAEPSConfig } from '@/services/aeps/config';
+import { getAEPSConfig, isAEPSProviderPay2New } from '@/services/aeps/config';
+import { getPay2NewAepsService } from '@/services/pay2new-aeps';
+import { onboardMerchantPAN } from '@/services/pay2new/onboarding';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 
 export const runtime = 'nodejs';
@@ -210,6 +212,139 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Pay2New provider path ─────────────────────────────────────────────────
+    // Step 1: Call PAN-Based Onboarding API → get per-merchant outletId
+    // Step 2: Check biometric KYC status for that outletId
+    if (isAEPSProviderPay2New() && !getAEPSConfig().useMock) {
+      try {
+        const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+          || request.headers.get('x-real-ip')
+          || '127.0.0.1';
+        const requestId = `MERC_${user.partner_id}_${Date.now()}`;
+
+        // Normalise DOB to YYYY-MM-DD
+        let dobFormatted = dateOfBirth || '';
+        if (dobFormatted && /^\d{2}[-\/]\d{2}[-\/]\d{4}$/.test(dobFormatted)) {
+          // DD-MM-YYYY or DD/MM/YYYY → YYYY-MM-DD
+          const [d, m, y] = dobFormatted.replace(/\//g, '-').split('-');
+          dobFormatted = `${y}-${m}-${d}`;
+        }
+
+        // Step 1 — PAN-Based Onboarding
+        const onboardProductCode = process.env.PAY2NEW_ONBOARD_PRODUCT_CODE || '291';
+        const onboardResult = await onboardMerchantPAN({
+          mobile_number: mobile,
+          pan_number: pan,
+          name,
+          gender: gender as 'M' | 'F' | 'O',
+          aadhaar_number: cleanAadhaar,
+          email: email || `${mobile}@aeps.local`,
+          address: normalizedAddress.full || `${normalizedAddress.city}, ${normalizedAddress.pincode}`,
+          city: normalizedAddress.city || undefined,
+          pincode: normalizedAddress.pincode,
+          dob: dobFormatted,
+          latitude: latitude || '19.1258',
+          longitude: longitude || '74.7453',
+          terms_agree: 'Y',
+          product_code: onboardProductCode,
+          ip: clientIp,
+          request_id: requestId,
+        });
+
+        console.log('[AEPS Merchant Create] Pay2New onboard result:', JSON.stringify(onboardResult));
+
+        if (onboardResult.status !== 1 || !onboardResult.outletId) {
+          // status 2 = failure; surface Pay2New's validation errors if present
+          const errMsg = onboardResult.errors
+            ? Object.values(onboardResult.errors).join('; ')
+            : onboardResult.message || 'Pay2New merchant onboarding failed';
+          return NextResponse.json({ success: false, error: errMsg, errors: onboardResult.errors }, { status: 400 });
+        }
+
+        const outletId = onboardResult.outletId;
+
+        // Step 2 — Check biometric KYC status for the new outletId
+        const p2nService = getPay2NewAepsService(outletId);
+        let needsBiometric = false;
+        let referenceKey: string | null = null;
+        let pidOptionWadh: string | null = null;
+        let localKyc: 'validated' | 'pending' = 'pending';
+
+        try {
+          const kycStatus = await p2nService.checkBioKycStatus();
+          const kycData = kycStatus.data;
+          const isApproved = kycData?.status === 'APPROVED' && kycData?.action === 'NO-ACTION-REQUIRED';
+          needsBiometric = kycData?.action === 'ACTION-REQUIRED';
+          referenceKey = kycData?.referenceKey || null;
+          pidOptionWadh = kycData?.pidOptionWadh || null;
+          localKyc = isApproved ? 'validated' : 'pending';
+        } catch (kycErr: any) {
+          console.warn('[AEPS Merchant Create] Pay2New KYC status check failed (non-fatal):', kycErr.message);
+          // Non-fatal — merchant is onboarded; KYC status unknown
+        }
+
+        await supabase.from('aeps_merchants').upsert({
+          user_id: user.partner_id,
+          merchant_id: outletId,
+          provider: 'pay2new',
+          onboard_order_id: onboardResult.order_id || null,
+          name,
+          mobile,
+          email: email || null,
+          pan,
+          aadhaar_masked: `XXXX XXXX ${cleanAadhaar.slice(-4)}`,
+          date_of_birth: dobFormatted || dateOfBirth,
+          gender,
+          kyc_status: localKyc,
+          address_full: normalizedAddress.full,
+          address_city: normalizedAddress.city,
+          address_pincode: normalizedAddress.pincode,
+          bank_account_masked: `*****${bankAccountNo.slice(-4)}`,
+          bank_ifsc: bankIfsc,
+          bank_name: bankName || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          kyc_provider_response: JSON.stringify({
+            provider: 'pay2new',
+            onboard: { order_id: onboardResult.order_id, outletId },
+          }),
+        }, { onConflict: 'user_id' });
+
+        const ctx = getRequestContext(request);
+        logActivityFromContext(ctx, user, {
+          activity_type: 'aeps_merchant_create',
+          activity_category: 'aeps',
+          activity_description: `Pay2New merchant onboarded — outletId: ${outletId}`,
+          reference_id: outletId,
+          metadata: { provider: 'pay2new', kycStatus: localKyc, needsBiometric },
+        }).catch(() => {});
+
+        return NextResponse.json({
+          success: true,
+          message: localKyc === 'validated'
+            ? 'Merchant registered & KYC approved (Pay2New)'
+            : needsBiometric
+            ? 'Merchant registered. Biometric KYC required — use /api/aeps/biometric-kyc with the referenceKey.'
+            : 'Merchant registered with Pay2New. KYC pending approval.',
+          isMockMode: false,
+          data: {
+            merchantId: outletId,
+            kycStatus: localKyc,
+            needsBiometric,
+            referenceKey,
+            pidOptionWadh,
+          },
+        });
+      } catch (err: any) {
+        console.error('[AEPS Merchant Create] Pay2New onboarding error:', err);
+        return NextResponse.json(
+          { error: err.message || 'Pay2New merchant onboarding failed' },
+          { status: 500 }
+        );
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
+
     // In mock mode, never call Chagans (avoids IP whitelist errors on local dev egress)
     if (getAEPSConfig().useMock) {
       const mockMerchantId = `MOCK_${user.partner_id}`;
@@ -217,6 +352,7 @@ export async function POST(request: NextRequest) {
         {
           user_id: user.partner_id,
           merchant_id: mockMerchantId,
+          provider: 'chagans',
           name,
           mobile,
           email: email || null,
@@ -277,6 +413,7 @@ export async function POST(request: NextRequest) {
       await supabase.from('aeps_merchants').upsert({
         user_id: user.partner_id,
         merchant_id: tempMerchantId,
+        provider: 'chagans',
         name,
         mobile,
         email: email || null,
@@ -357,6 +494,7 @@ export async function POST(request: NextRequest) {
     await supabase.from('aeps_merchants').upsert({
       user_id: user.partner_id,
       merchant_id: merchantId,
+      provider: 'chagans',
       name,
       mobile,
       email: email || null,

@@ -1,7 +1,21 @@
 /**
  * AEPS Service Configuration
- * Controls mock vs real API switching
+ * Controls mock vs real API switching and provider selection.
+ *
+ * AEPS_PROVIDER=chagans (default) — existing Chagans/Instantpay integration
+ * AEPS_PROVIDER=pay2new           — Pay2New AePS (uses PAY2NEW_SECRET + PAY2NEW_OUTLET_ID)
  */
+
+export type AEPSProvider = 'chagans' | 'pay2new';
+
+export function getAEPSProvider(): AEPSProvider {
+  const v = (process.env.AEPS_PROVIDER || 'chagans').toLowerCase();
+  return v === 'pay2new' ? 'pay2new' : 'chagans';
+}
+
+export function isAEPSProviderPay2New(): boolean {
+  return getAEPSProvider() === 'pay2new';
+}
 
 export interface AEPSConfig {
   useMock: boolean;

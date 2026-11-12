@@ -3,8 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getMockLoginStatusResponse } from '@/lib/aeps-mock';
-import { getAEPSConfig } from '@/services/aeps/config';
+import { getAEPSConfig, isAEPSProviderPay2New } from '@/services/aeps/config';
 import { getAEPSService } from '@/services/aeps';
+import { getPay2NewAepsService } from '@/services/pay2new-aeps';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,70 @@ export async function POST(request: NextRequest) {
       .select('merchant_id, kyc_status, name, mobile, last_login_at, login_wadh, device_fingerprint')
       .eq('user_id', user.partner_id)
       .maybeSingle();
+
+    // ── Pay2New provider path ─────────────────────────────────────────────────
+    if (isAEPSProviderPay2New()) {
+      const sessionActive = isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS);
+      const deviceMatch = merchantRecord?.device_fingerprint
+        ? deviceFingerprint === merchantRecord.device_fingerprint
+        : false;
+      const twoFAValid = sessionActive && deviceMatch;
+
+      if (config.useMock) {
+        const result = getMockLoginStatusResponse(inputMerchantId, type);
+        const kycStatus = merchantRecord?.kyc_status || 'pending';
+        const loggedIn = kycStatus === 'validated' && twoFAValid;
+        return NextResponse.json({
+          success: true,
+          data: {
+            loginStatus: loggedIn,
+            bankList: result.data?.bankList || [],
+            wadh: null,
+            route: 'INSTANTPAY',
+            kycStatus,
+          },
+          isMockMode: true,
+        });
+      }
+
+      try {
+        // Use the stored per-merchant outletId, not the platform-level one
+        const p2nService = getPay2NewAepsService(merchantRecord?.merchant_id || undefined);
+        const [loginStatusRes, bankList] = await Promise.all([
+          p2nService.checkLoginStatus(inputMerchantId, type),
+          p2nService.getBanks(),
+        ]);
+
+        const providerLoggedIn = loginStatusRes.data?.loginStatus === true;
+        const effectiveLoginStatus = twoFAValid && providerLoggedIn;
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            loginStatus: effectiveLoginStatus,
+            bankList,
+            wadh: null,
+            route: 'INSTANTPAY',
+            kycStatus: merchantRecord?.kyc_status || 'validated',
+            sessionExpired: !sessionActive ? true : undefined,
+            deviceChanged: !deviceMatch ? true : undefined,
+          },
+          isMockMode: false,
+        });
+      } catch (err: any) {
+        console.error('[AEPS Login Status] Pay2New error:', err);
+        if (twoFAValid) {
+          return NextResponse.json({
+            success: true,
+            data: { loginStatus: true, bankList: [], wadh: null, route: 'INSTANTPAY', kycStatus: merchantRecord?.kyc_status || 'validated' },
+            message: 'Using cached session (Pay2New temporarily unavailable)',
+            isMockMode: false,
+          });
+        }
+        throw err;
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
 
     // Check 24-hour session validity and device match
     const sessionActive = isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS);

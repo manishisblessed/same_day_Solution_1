@@ -4,6 +4,8 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access'
 import { verifyBankAccount } from '@/services/payout/verifyAccount'
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger'
+import { isAEPSProviderPay2New } from '@/services/aeps/config'
+import { createPay2NewAepsClient } from '@/services/pay2new-aeps'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,9 +17,21 @@ function getSupabase() {
   )
 }
 
+/** Look up per-merchant outletId for Pay2New API calls */
+async function getMerchantOutletId(userId: string): Promise<string | undefined> {
+  const { data } = await getSupabase()
+    .from('aeps_merchants')
+    .select('merchant_id')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return data?.merchant_id || undefined
+}
+
 /**
  * GET /api/aeps/settlement-account
  * Returns the current user's AEPS settlement accounts.
+ * Pay2New: fetches live from Pay2New /accountList
+ * Chagans: fetches from local aeps_settlement_accounts table
  */
 export async function GET(request: NextRequest) {
   try {
@@ -26,6 +40,22 @@ export async function GET(request: NextRequest) {
     if (!user?.partner_id) {
       return NextResponse.json({ error: 'Session expired', code: 'SESSION_EXPIRED' }, { status: 401 })
     }
+
+    // ── Pay2New path ──────────────────────────────────────────────────────────
+    if (isAEPSProviderPay2New()) {
+      try {
+        const outletId = await getMerchantOutletId(user.partner_id)
+        const client = createPay2NewAepsClient(outletId)
+        const result = await client.settlementAccountList()
+        // status:2 with "No bank accounts founds" = empty list (not an error)
+        const accounts = result.status === 1 ? (result.data || []) : []
+        return NextResponse.json({ success: true, accounts, provider: 'pay2new' })
+      } catch (err: any) {
+        console.error('[AEPS Settle Account] Pay2New list error:', err)
+        return NextResponse.json({ success: true, accounts: [], provider: 'pay2new' })
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
 
     const supabase = getSupabase()
     const { data: accounts, error } = await supabase
@@ -48,7 +78,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/aeps/settlement-account
- * Step 1+2: Retailer adds bank account → system verifies via penny-drop → saved as pending_approval
+ * Pay2New: calls /addAccount directly (Pay2New verifies internally)
+ * Chagans: penny-drop verify → saved as pending_approval
  */
 export async function POST(request: NextRequest) {
   try {
@@ -66,7 +97,77 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { account_number, ifsc_code, bank_name } = body
+    const { account_number, ifsc_code, bank_name, account_holder_name } = body
+
+    // ── Pay2New path ──────────────────────────────────────────────────────────
+    if (isAEPSProviderPay2New()) {
+      if (!account_number || !ifsc_code) {
+        return NextResponse.json({ error: 'account_number and ifsc_code are required' }, { status: 400 })
+      }
+      if (!account_holder_name) {
+        return NextResponse.json({ error: 'account_holder_name is required for Pay2New settlement' }, { status: 400 })
+      }
+
+      const normalizedAccount = account_number.toString().replace(/\s+/g, '').trim()
+      const normalizedIfsc = ifsc_code.toString().replace(/\s+/g, '').trim().toUpperCase()
+
+      if (!/^\d{9,18}$/.test(normalizedAccount)) {
+        return NextResponse.json({ error: 'Invalid account number (9-18 digits)' }, { status: 400 })
+      }
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(normalizedIfsc)) {
+        return NextResponse.json({ error: 'Invalid IFSC format' }, { status: 400 })
+      }
+
+      const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+        || request.headers.get('x-real-ip') || '127.0.0.1'
+      const requestId = `SACC_${user.partner_id}_${Date.now()}`
+
+      try {
+        const outletId = await getMerchantOutletId(user.partner_id)
+        const client = createPay2NewAepsClient(outletId)
+        const result = await client.settlementAddAccount({
+          bank: bank_name || normalizedIfsc.substring(0, 4) + ' Bank',
+          account_holder_name,
+          account_number: normalizedAccount,
+          ifsc: normalizedIfsc,
+          latitude: process.env.PAY2NEW_LATITUDE || '19.1258',
+          longitude: process.env.PAY2NEW_LONGITUDE || '74.7453',
+          terms_agree: 'Y',
+          request_id: requestId,
+          ip: clientIp,
+        })
+
+        const success = result.status === 1
+        if (!success) {
+          return NextResponse.json(
+            { error: result.message || 'Pay2New account registration failed' },
+            { status: 400 }
+          )
+        }
+
+        const ctx = getRequestContext(request)
+        logActivityFromContext(ctx, user, {
+          activity_type: 'aeps_settlement_account_add',
+          activity_category: 'aeps',
+          activity_description: `Pay2New settlement account added (${normalizedIfsc})`,
+          metadata: { accountId: result.data?.id, instantpay_status: result.data?.instantpay_status },
+        }).catch(() => {})
+
+        return NextResponse.json({
+          success: true,
+          message: result.message || 'Settlement account registered with Pay2New',
+          account: result.data,
+          provider: 'pay2new',
+        })
+      } catch (err: any) {
+        console.error('[AEPS Settle Account] Pay2New add error:', err)
+        return NextResponse.json(
+          { error: err.message || 'Failed to register settlement account' },
+          { status: 500 }
+        )
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
 
     if (!account_number || !ifsc_code) {
       return NextResponse.json({ error: 'account_number and ifsc_code are required' }, { status: 400 })
@@ -173,8 +274,9 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * DELETE /api/aeps/settlement-account?id=<uuid>
- * Retailer can delete their own non-approved account (or any account).
+ * DELETE /api/aeps/settlement-account?id=<id>
+ * Pay2New: calls POST /deleteAccount (id = Pay2New's numeric account id)
+ * Chagans: removes from local aeps_settlement_accounts table
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -188,6 +290,27 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'Account id is required' }, { status: 400 })
     }
+
+    // ── Pay2New path ──────────────────────────────────────────────────────────
+    if (isAEPSProviderPay2New()) {
+      if (!/^\d+$/.test(id)) {
+        return NextResponse.json({ error: 'Pay2New account id must be digits only' }, { status: 400 })
+      }
+      try {
+        const outletId = await getMerchantOutletId(user.partner_id)
+        const client = createPay2NewAepsClient(outletId)
+        const result = await client.settlementDeleteAccount({ id })
+        const success = result.status === 1
+        return NextResponse.json(
+          { success, message: result.message || (success ? 'Account deleted' : 'Delete failed'), provider: 'pay2new' },
+          { status: success ? 200 : 400 }
+        )
+      } catch (err: any) {
+        console.error('[AEPS Settle Account] Pay2New delete error:', err)
+        return NextResponse.json({ error: err.message || 'Failed to delete account' }, { status: 500 })
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
 
     const supabase = getSupabase()
     const { error } = await supabase

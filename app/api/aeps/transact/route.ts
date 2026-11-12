@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getAEPSService } from '@/services/aeps';
+import { isAEPSProviderPay2New } from '@/services/aeps/config';
+import { getPay2NewAepsService } from '@/services/pay2new-aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
@@ -140,7 +142,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'bankIin is required' }, { status: 400 });
     }
 
-    const aepsService = getAEPSService();
+    const isPay2New = isAEPSProviderPay2New();
 
     // Look up merchant and validate 2FA session
     let chagansMerchantId = merchantId;
@@ -149,6 +151,11 @@ export async function POST(request: NextRequest) {
       .select('merchant_id, last_login_at, device_fingerprint')
       .eq('user_id', user.partner_id)
       .maybeSingle();
+
+    // Create provider service AFTER merchant lookup so we have the per-merchant outletId
+    const aepsService = isPay2New
+      ? getPay2NewAepsService(merchantRecord?.merchant_id || undefined)
+      : getAEPSService();
 
     if (!aepsService.isMockMode()) {
       if (!merchantRecord?.merchant_id) {
@@ -288,6 +295,7 @@ export async function POST(request: NextRequest) {
         user_id: user.partner_id,
         user_role: user.role,
         merchant_id: merchantId,
+        provider: isPay2New ? 'pay2new' : 'chagans',
         transaction_type: transactionType,
         is_financial: isFinancial,
         amount: isFinancial ? txnAmount : null,
@@ -322,7 +330,13 @@ export async function POST(request: NextRequest) {
       bankName,
       wadh,
       biometricData,
-    });
+      // Pay2New-specific extras (ignored by Chagans service)
+      ...(isPay2New && {
+        clientIp: clientIp !== 'unknown' ? clientIp : undefined,
+        latitude: (body as any).latitude,
+        longitude: (body as any).longitude,
+      }),
+    } as any);
 
     if (result.success) {
       // Per AEPS policy: balance and mini_statement are display-only, never stored.

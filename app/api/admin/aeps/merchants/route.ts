@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '100');
     const offset = parseInt(searchParams.get('offset') || '0');
     const kycStatus = searchParams.get('kyc_status');
+    const provider = searchParams.get('provider'); // 'chagans' or 'pay2new'
     const userId = searchParams.get('user_id');
     const search = searchParams.get('search');
 
@@ -49,6 +50,10 @@ export async function GET(request: NextRequest) {
     // Apply filters
     if (kycStatus) {
       query = query.eq('kyc_status', kycStatus);
+    }
+
+    if (provider) {
+      query = query.eq('provider', provider);
     }
 
     if (userId) {
@@ -85,8 +90,12 @@ export async function GET(request: NextRequest) {
           validated: merchants.filter(m => m.kyc_status === 'validated').length,
           pending: merchants.filter(m => m.kyc_status === 'pending').length,
           rejected: merchants.filter(m => m.kyc_status === 'rejected').length,
+          byProvider: {
+            chagans: merchants.filter(m => (m.provider || 'chagans') === 'chagans').length,
+            pay2new: merchants.filter(m => m.provider === 'pay2new').length,
+          },
         }
-      : { total: 0, validated: 0, pending: 0, rejected: 0 };
+      : { total: 0, validated: 0, pending: 0, rejected: 0, byProvider: { chagans: 0, pay2new: 0 } };
 
     return NextResponse.json({
       merchants: merchants || [],

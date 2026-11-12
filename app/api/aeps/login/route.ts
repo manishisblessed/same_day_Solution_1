@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getCurrentUserWithFallback } from '@/lib/auth-server';
 import { authorizeSubPartner, normalizeMasterPartner } from '@/lib/partner-access';
 import { getAEPSClient, getAEPSConfig } from '@/services/aeps';
+import { isAEPSProviderPay2New } from '@/services/aeps/config';
+import { getPay2NewAepsService } from '@/services/pay2new-aeps';
 import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger';
 
 export const runtime = 'nodejs';
@@ -49,12 +51,16 @@ export async function POST(request: NextRequest) {
       transType = 'withdraw',
       wadh,
       deviceFingerprint,
+      // Pay2New-specific: merchant's own Aadhaar for daily login
+      merchantAadhaar,
+      latitude,
+      longitude,
       // Biometric data from RD service
       bioType,
       dc, ci, hmac, dpId, mc, pidDataType, mi,
       rdsId, sessionKey, fCount, errCode, pCount,
       fType, iCount, pType, srno, pidData, qScore,
-      nmPoints, rdsVer
+      nmPoints, rdsVer, errInfo, iType, sysid, ts,
     } = body;
 
     if (!merchantId) {
@@ -63,6 +69,74 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ── Pay2New provider path ─────────────────────────────────────────────────
+    if (isAEPSProviderPay2New()) {
+      if (!merchantAadhaar || !/^\d{12}$/.test(merchantAadhaar)) {
+        return NextResponse.json(
+          { error: 'merchantAadhaar (12 digits) is required for Pay2New daily login' },
+          { status: 400 }
+        );
+      }
+      if (!pidData || !sessionKey) {
+        return NextResponse.json({ error: 'Biometric capture data is required' }, { status: 400 });
+      }
+
+      try {
+        // Look up stored merchant_id (per-merchant outletId from PAN onboarding)
+        const { data: merchantRec } = await supabase
+          .from('aeps_merchants')
+          .select('merchant_id')
+          .eq('user_id', user.partner_id)
+          .maybeSingle();
+        const p2nService = getPay2NewAepsService(merchantRec?.merchant_id || undefined);
+        const loginResult = await p2nService.merchantLogin({
+          merchantAadhaar,
+          latitude,
+          longitude,
+          captureType: bioType === 'FACE' ? 'FACE' : 'FINGER',
+          type: 'DAILY_LOGIN',
+          rdFields: { dc, ci, hmac, dpId, mc, pidDataType, mi, rdsId, sessionKey, fCount, errCode, pCount, fType, iCount, pType, srno, pidData, qScore, nmPoints, rdsVer, errInfo, iType, sysid, ts, bioType },
+        });
+
+        const success = loginResult.status === 1;
+
+        if (success) {
+          await supabase
+            .from('aeps_merchants')
+            .update({
+              last_login_at: new Date().toISOString(),
+              login_wadh: null,
+              device_fingerprint: deviceFingerprint || null,
+              login_ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.partner_id);
+
+          const ctx = getRequestContext(request);
+          logActivityFromContext(ctx, user, {
+            activity_type: 'aeps_login',
+            activity_category: 'aeps',
+            activity_description: 'Pay2New AePS merchant login successful',
+            reference_id: merchantId,
+          }).catch(() => {});
+        }
+
+        return NextResponse.json({
+          success,
+          message: loginResult.message || (success ? 'Login successful' : 'Login failed'),
+          isMockMode: false,
+          data: { wadh: null, loginStatus: success, route: 'INSTANTPAY' },
+        }, { status: success ? 200 : 400 });
+      } catch (err: any) {
+        console.error('[AEPS Login] Pay2New error:', err);
+        return NextResponse.json(
+          { success: false, error: err.message || 'Login failed', data: { loginStatus: false } },
+          { status: 500 }
+        );
+      }
+    }
+    // ── End Pay2New path ──────────────────────────────────────────────────────
 
     const config = getAEPSConfig();
 

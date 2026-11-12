@@ -46,10 +46,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get merchant statistics
+    // Get merchant statistics (include provider for breakdown)
     const { data: merchants, error: merchantError } = await supabase
       .from('aeps_merchants')
-      .select('id, kyc_status, created_at');
+      .select('id, kyc_status, provider, created_at');
 
     if (merchantError) {
       console.error('[AEPS Stats] Merchant query error:', merchantError);
@@ -95,6 +95,11 @@ export async function GET(request: NextRequest) {
       successRate: parseFloat(allTimeSuccessRate.toFixed(2)),
       merchantCount: merchants?.length || 0,
       activeMerchants: activeMerchants,
+      merchantsByProvider: {
+        chagans: merchants?.filter(m => (m.provider || 'chagans') === 'chagans').length || 0,
+        pay2new: merchants?.filter(m => m.provider === 'pay2new').length || 0,
+      },
+      activeProvider: process.env.AEPS_PROVIDER || 'chagans',
     };
 
     return NextResponse.json(stats);

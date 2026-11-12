@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
     const status = searchParams.get('status');
     const transactionType = searchParams.get('transaction_type');
+    const provider = searchParams.get('provider'); // 'chagans' or 'pay2new'
     const userId = searchParams.get('user_id');
     const merchantId = searchParams.get('merchant_id');
     const dateFrom = searchParams.get('date_from');
@@ -57,6 +58,10 @@ export async function GET(request: NextRequest) {
 
     if (transactionType) {
       query = query.eq('transaction_type', transactionType);
+    }
+
+    if (provider) {
+      query = query.eq('provider', provider);
     }
 
     if (userId) {
@@ -108,8 +113,12 @@ export async function GET(request: NextRequest) {
           totalAmount: transactions
             .filter(t => t.is_financial && t.status === 'success')
             .reduce((sum, t) => sum + (t.amount || 0), 0),
+          byProvider: {
+            chagans: transactions.filter(t => (t.provider || 'chagans') === 'chagans').length,
+            pay2new: transactions.filter(t => t.provider === 'pay2new').length,
+          },
         }
-      : { total: 0, success: 0, failed: 0, pending: 0, totalAmount: 0 };
+      : { total: 0, success: 0, failed: 0, pending: 0, totalAmount: 0, byProvider: { chagans: 0, pay2new: 0 } };
 
     return NextResponse.json({
       transactions: transactions || [],
