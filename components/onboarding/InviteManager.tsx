@@ -7,7 +7,7 @@ import {
   UserPlus, Send, Loader2, RefreshCw, Pencil, Link2, Share2, Copy,
   CheckCircle2, XCircle, X, Search, ExternalLink, Clock, Eye, FileText,
   ShieldCheck, Landmark, User, Video as VideoIcon, Mail, MessageSquare,
-  Download, ZoomIn,
+  Download, ZoomIn, FileSignature,
 } from 'lucide-react'
 import JSZip from 'jszip'
 import { useToast } from '@/components/Toast'
@@ -96,6 +96,7 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
   const [invites, setInvites] = useState<InviteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [esignBusyId, setEsignBusyId] = useState<string | null>(null)
   const [editing, setEditing] = useState<InviteRow | null>(null)
   const [reviewing, setReviewing] = useState<InviteRow | null>(null)
 
@@ -238,6 +239,27 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
       showToast(e.message, 'error')
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function sendAgreement(inv: InviteRow) {
+    setEsignBusyId(inv.id)
+    try {
+      const res = await apiFetch('/api/admin/esign/send', {
+        method: 'POST',
+        body: JSON.stringify({ inviteId: inv.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        if (data.alreadySigned) { showToast('Agreement already signed', 'info'); return }
+        if (data.alreadySent) { showToast('Agreement already sent — pending signature', 'info'); return }
+        throw new Error(data.error || 'Failed to send agreement')
+      }
+      showToast(data.message || 'Agreement sent for signing', 'success')
+    } catch (e: any) {
+      showToast(e.message, 'error')
+    } finally {
+      setEsignBusyId(null)
     }
   }
 
@@ -468,6 +490,16 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
                               <IconBtn title="Approve" tone="emerald" disabled={rowBusy} onClick={() => act(inv.id, 'approve')}><CheckCircle2 className="h-4 w-4" /></IconBtn>
                               <IconBtn title="Reject" tone="rose" disabled={rowBusy} onClick={() => act(inv.id, 'reject')}><XCircle className="h-4 w-4" /></IconBtn>
                             </>
+                          )}
+                          {adminMode && isAdmin && inv.status === 'approved' && (
+                            <IconBtn
+                              title="Send Partner Agreement for eSign"
+                              tone="indigo"
+                              disabled={esignBusyId === inv.id}
+                              onClick={() => sendAgreement(inv)}
+                            >
+                              {esignBusyId === inv.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />}
+                            </IconBtn>
                           )}
                           {!inv.onboardingLink && !canEdit && !canReshare && !canApprove && (
                             <span className="text-xs text-gray-300"><Clock className="h-4 w-4" /></span>
