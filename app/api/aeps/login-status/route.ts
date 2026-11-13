@@ -82,15 +82,25 @@ export async function POST(request: NextRequest) {
 
     // ── Pay2New provider path ─────────────────────────────────────────────────
     if (isAEPSProviderPay2New()) {
-      const sessionActive = isSessionValid(merchantRecord?.last_login_at, AEPS_SESSION_HOURS);
-      const deviceMatch = merchantRecord?.device_fingerprint
+      // No merchant yet → force KYC registration (do NOT default to 'validated')
+      if (!merchantRecord || !merchantRecord.merchant_id) {
+        return NextResponse.json({
+          success: false,
+          data: { loginStatus: false, bankList: [], wadh: null, route: null, kycStatus: 'not_registered' },
+          message: 'Merchant not registered. Please complete KYC first.',
+          isMockMode: false,
+        });
+      }
+
+      const sessionActive = isSessionValid(merchantRecord.last_login_at, AEPS_SESSION_HOURS);
+      const deviceMatch = merchantRecord.device_fingerprint
         ? deviceFingerprint === merchantRecord.device_fingerprint
         : false;
       const twoFAValid = sessionActive && deviceMatch;
 
       if (config.useMock) {
         const result = getMockLoginStatusResponse(inputMerchantId, type);
-        const kycStatus = merchantRecord?.kyc_status || 'pending';
+        const kycStatus = merchantRecord.kyc_status || 'pending';
         const loggedIn = kycStatus === 'validated' && twoFAValid;
         return NextResponse.json({
           success: true,
@@ -105,9 +115,55 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      const p2nService = getPay2NewAepsService(merchantRecord.merchant_id);
+
+      // If KYC not yet validated locally, check LIVE biometric KYC status and sync.
+      // This is what lets a 'pending' merchant transition to 'validated' and tells
+      // the UI whether a biometric KYC submission is still required.
+      let kycStatus: string = merchantRecord.kyc_status || 'pending';
+      let needsBiometric = false;
+      let referenceKey: string | null = null;
+      let pidOptionWadh: string | null = null;
+
+      if (kycStatus !== 'validated') {
+        try {
+          const bio = await p2nService.checkBioKycStatus();
+          const d = bio.data;
+          const approved = d?.status === 'APPROVED' && d?.action === 'NO-ACTION-REQUIRED';
+          needsBiometric = d?.action === 'ACTION-REQUIRED';
+          referenceKey = d?.referenceKey || null;
+          pidOptionWadh = d?.pidOptionWadh || null;
+          if (approved) {
+            kycStatus = 'validated';
+            await supabase
+              .from('aeps_merchants')
+              .update({ kyc_status: 'validated', updated_at: new Date().toISOString() })
+              .eq('user_id', user.partner_id);
+          }
+        } catch (e) {
+          console.warn('[AEPS Login Status] Pay2New bio KYC check failed:', e);
+        }
+
+        // Not validated yet → return KYC state (biometric submission may be required)
+        if (kycStatus !== 'validated') {
+          return NextResponse.json({
+            success: true,
+            data: {
+              loginStatus: false,
+              bankList: [],
+              wadh: null,
+              route: 'INSTANTPAY',
+              kycStatus,
+              needsBiometric,
+              referenceKey,
+              pidOptionWadh,
+            },
+            isMockMode: false,
+          });
+        }
+      }
+
       try {
-        // Use the stored per-merchant outletId, not the platform-level one
-        const p2nService = getPay2NewAepsService(merchantRecord?.merchant_id || undefined);
         const [loginStatusRes, bankList] = await Promise.all([
           p2nService.checkLoginStatus(inputMerchantId, type),
           p2nService.getBanks(),
@@ -123,7 +179,7 @@ export async function POST(request: NextRequest) {
             bankList,
             wadh: null,
             route: 'INSTANTPAY',
-            kycStatus: merchantRecord?.kyc_status || 'validated',
+            kycStatus: 'validated',
             sessionExpired: !sessionActive ? true : undefined,
             deviceChanged: !deviceMatch ? true : undefined,
           },
@@ -134,7 +190,7 @@ export async function POST(request: NextRequest) {
         if (twoFAValid) {
           return NextResponse.json({
             success: true,
-            data: { loginStatus: true, bankList: [], wadh: null, route: 'INSTANTPAY', kycStatus: merchantRecord?.kyc_status || 'validated' },
+            data: { loginStatus: true, bankList: [], wadh: null, route: 'INSTANTPAY', kycStatus: 'validated' },
             message: 'Using cached session (Pay2New temporarily unavailable)',
             isMockMode: false,
           });

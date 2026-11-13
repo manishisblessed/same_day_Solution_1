@@ -109,7 +109,7 @@ interface TransactionResult {
   receipt: ReceiptData;
 }
 
-type FlowStep = 'check_merchant' | 'kyc_form' | 'kyc_pending' | 'biometric_login' | 'transaction';
+type FlowStep = 'check_merchant' | 'kyc_form' | 'kyc_biometric' | 'kyc_pending' | 'biometric_login' | 'transaction';
 type TransactionType = 'balance_inquiry' | 'cash_withdrawal' | 'cash_deposit' | 'mini_statement';
 
 // ============================================================================
@@ -1066,7 +1066,10 @@ const BiometricLogin = ({
   isMockMode,
   initialWadh,
   onKycUpdateSuccess,
-  deviceFingerprint
+  deviceFingerprint,
+  isPay2New = false,
+  merchantAadhaar = '',
+  onAadhaarChange,
 }: {
   merchantInfo: MerchantInfo;
   onSuccess: (wadh: string) => void;
@@ -1075,10 +1078,14 @@ const BiometricLogin = ({
   initialWadh: string;
   onKycUpdateSuccess?: (message: string) => void;
   deviceFingerprint: string;
+  isPay2New?: boolean;
+  merchantAadhaar?: string;
+  onAadhaarChange?: (aadhaar: string) => void;
 }) => {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'processing' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [deviceInfo, setDeviceInfo] = useState<{ name: string; serial: string } | null>(null);
+  const [aadhaarInput, setAadhaarInput] = useState(merchantAadhaar);
 
   const checkDevice = useCallback(async () => {
     const rdServicePorts = [11100, 11101, 11102];
@@ -1122,6 +1129,13 @@ const BiometricLogin = ({
   const captureFingerprint = () => captureBiometric(initialWadh || '');
 
   const handleScan = async () => {
+    // Pay2New daily login requires the merchant's own Aadhaar
+    if (isPay2New && !isMockMode && !/^\d{12}$/.test(aadhaarInput.replace(/\D/g, ''))) {
+      setStatus('error');
+      setMessage('Enter your 12-digit Aadhaar number to log in.');
+      onError('Enter your 12-digit Aadhaar number to log in.');
+      return;
+    }
     setStatus('scanning');
     setMessage('Place your finger on the scanner...');
 
@@ -1162,6 +1176,7 @@ const BiometricLogin = ({
           transType: 'withdraw',
           wadh: initialWadh || '',
           deviceFingerprint,
+          ...(isPay2New ? { merchantAadhaar: aadhaarInput.replace(/\D/g, '') } : {}),
           ...biometricData
         };
         console.log('[Biometric] Login payload keys:', Object.keys(loginPayload));
@@ -1256,6 +1271,25 @@ const BiometricLogin = ({
             <AlertCircle className="w-4 h-4 inline mr-1" />
             Mock Mode - No real biometric required
           </p>
+        </div>
+      )}
+
+      {isPay2New && !isMockMode && (
+        <div className="mb-4 text-left">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Your Aadhaar Number</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={12}
+            value={aadhaarInput}
+            onChange={(e) => {
+              const v = e.target.value.replace(/\D/g, '').slice(0, 12);
+              setAadhaarInput(v);
+              onAadhaarChange?.(v);
+            }}
+            placeholder="12-digit Aadhaar"
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-400 focus:border-orange-400 tracking-widest"
+          />
         </div>
       )}
 
@@ -2073,6 +2107,11 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
   const [walletBalance, setWalletBalance] = useState(0);
   const [isMockMode, setIsMockMode] = useState(false);
   const [deviceFP] = useState(() => generateDeviceFingerprint());
+  // Pay2New biometric-KYC state (in-memory only — Aadhaar never persisted client-side)
+  const [kycReferenceKey, setKycReferenceKey] = useState<string>('');
+  const [kycPidOptionWadh, setKycPidOptionWadh] = useState<string>('');
+  const [merchantAadhaar, setMerchantAadhaar] = useState<string>('');
+  const [isPay2New, setIsPay2New] = useState(false);
 
   const steps = [
     { id: 'check_merchant', label: 'Merchant', icon: <User className="w-5 h-5" /> },
@@ -2096,6 +2135,25 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
 
       setIsMockMode(loginStatus.isMockMode || false);
       setWalletBalance(walletData.balance || 0);
+
+      // Detect Pay2New provider from response markers
+      const lsd = loginStatus.data;
+      const p2nDetected = lsd?.route === 'INSTANTPAY' || lsd?.needsBiometric === true || !!lsd?.referenceKey;
+      if (p2nDetected) setIsPay2New(true);
+
+      // Pay2New: biometric KYC submission still required (merchant must register biometric)
+      if (lsd?.needsBiometric && lsd?.referenceKey && lsd?.kycStatus !== 'validated') {
+        setKycReferenceKey(lsd.referenceKey);
+        setKycPidOptionWadh(lsd.pidOptionWadh || '');
+        setMerchantInfo({
+          merchant_id: user.partner_id,
+          name: user.name || '',
+          mobile: '',
+          kyc_status: 'pending',
+        });
+        setCurrentStep('kyc_biometric');
+        return;
+      }
 
       if (loginStatus.data?.kycStatus === 'validated') {
         setMerchantInfo({
@@ -2187,6 +2245,16 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
         });
         if (cancelled) return;
         pollAttemptsRef.current += 1;
+        // Pay2New: biometric KYC submission became required again → route to capture
+        if (ls.data?.needsBiometric && ls.data?.referenceKey && ls.data?.kycStatus !== 'validated') {
+          if (!cancelled) {
+            setKycReferenceKey(ls.data.referenceKey);
+            setKycPidOptionWadh(ls.data.pidOptionWadh || '');
+            setIsPay2New(true);
+            setCurrentStep('kyc_biometric');
+          }
+          return;
+        }
         if (ls.data?.kycStatus === 'validated') {
           setMerchantInfo({
             merchant_id: user.partner_id,
@@ -2228,6 +2296,8 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
     setIsLoading(true);
     setError(null);
 
+    const cleanAadhaar = data.aadhaar.replace(/\s/g, '').replace(/\D/g, '');
+
     try {
       const result = await apiFetchJson('/api/aeps/merchant/create', {
         method: 'POST',
@@ -2236,7 +2306,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
           mobile: data.mobile.replace(/\D/g, ''),
           email: data.email.trim(),
           pan: data.pan.toUpperCase().replace(/\s/g, ''),
-          aadhar: data.aadhaar.replace(/\s/g, '').replace(/\D/g, ''),
+          aadhar: cleanAadhaar,
           dob: data.dateOfBirth,
           gender: data.gender,
           address: data.address.trim(),
@@ -2250,6 +2320,8 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
 
       if (result.success) {
         const submittedKyc = result.data?.kycStatus || 'pending';
+        // Retain Aadhaar in memory for Pay2New biometric KYC + daily login
+        setMerchantAadhaar(cleanAadhaar);
         setMerchantInfo({
           merchant_id: result.data?.merchantId || user.partner_id,
           name: data.fullName,
@@ -2257,11 +2329,20 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
           kyc_status: submittedKyc
         });
 
-        // Biometric login only works once Chagans has VALIDATED the KYC. A freshly
+        // Pay2New: merchant must register their biometric before KYC is approved.
+        if (result.data?.needsBiometric && result.data?.referenceKey) {
+          setIsPay2New(true);
+          setKycReferenceKey(result.data.referenceKey);
+          setKycPidOptionWadh(result.data.pidOptionWadh || '');
+          setCurrentStep('kyc_biometric');
+          return;
+        }
+
+        // Biometric login only works once the provider has VALIDATED the KYC. A freshly
         // submitted merchant is still 'pending' at the aggregator, so routing straight
         // to biometric makes /api/aeps/login correctly reject with "KYC not validated".
         // Gate here: only go to biometric when validated; otherwise show the review
-        // screen and poll until Chagans flips the status.
+        // screen and poll until the provider flips the status.
         if (submittedKyc === 'validated') {
           const banksData = await apiFetchJson(`/api/aeps/banks?merchantId=${result.data?.merchantId || user.partner_id}`);
           setBanks(banksData.data || banksData.banks || []);
@@ -2274,6 +2355,52 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'KYC submission failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Pay2New: capture merchant's own biometric + submit biometric KYC
+  const handleKycBiometricSubmit = async () => {
+    const aadhaar = merchantAadhaar.replace(/\D/g, '');
+    if (!/^\d{12}$/.test(aadhaar)) {
+      setError('Enter your 12-digit Aadhaar number to register your biometric.');
+      return;
+    }
+    if (!kycReferenceKey) {
+      setError('Missing KYC reference. Please refresh and try again.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const bio = await captureBiometric(kycPidOptionWadh || '');
+      if (!bio) {
+        throw new Error('Failed to capture fingerprint. Ensure the Mantra device is connected and the RD Service is running.');
+      }
+      const result = await apiFetchJson('/api/aeps/biometric-kyc', {
+        method: 'POST',
+        body: JSON.stringify({
+          referenceKey: kycReferenceKey,
+          merchantAadhaar: aadhaar,
+          ...bio,
+        }),
+      });
+      if (result.success) {
+        setNotification({ message: 'Biometric KYC submitted. Awaiting banking-partner approval…', type: 'success' });
+        setMerchantInfo({
+          merchant_id: user.partner_id,
+          name: user.name || '',
+          mobile: '',
+          kyc_status: 'pending',
+        });
+        setCurrentStep('kyc_pending');
+      } else {
+        throw new Error(result.error || result.message || 'Biometric KYC failed');
+      }
+    } catch (err) {
+      if (err instanceof RDCertError) { setError(err.message); return; }
+      setError(err instanceof Error ? err.message : 'Biometric KYC failed');
     } finally {
       setIsLoading(false);
     }
@@ -2322,6 +2449,7 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
     switch (currentStep) {
       case 'check_merchant': return 0;
       case 'kyc_form': return 1;
+      case 'kyc_biometric': return 1;
       case 'kyc_pending': return 1;
       case 'biometric_login': return 2;
       case 'transaction': return 3;
@@ -2404,6 +2532,43 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
             />
           )}
 
+          {currentStep === 'kyc_biometric' && (
+            <div className="max-w-md mx-auto bg-white rounded-2xl border border-orange-200 shadow-sm p-8">
+              <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-orange-50 flex items-center justify-center">
+                <Fingerprint className="w-8 h-8 text-orange-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2 text-center">Register your biometric</h3>
+              <p className="text-gray-600 mb-6 text-center text-sm">
+                Your details are submitted. To activate AEPS, confirm your Aadhaar and scan your
+                fingerprint once on the Mantra device to register your biometric with the banking partner.
+              </p>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Your Aadhaar Number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={12}
+                value={merchantAadhaar}
+                onChange={(e) => setMerchantAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                placeholder="12-digit Aadhaar"
+                className="w-full px-4 py-3 mb-5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-400 focus:border-orange-400 tracking-widest"
+              />
+              <button
+                onClick={handleKycBiometricSubmit}
+                disabled={isLoading}
+                className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold rounded-xl hover:from-orange-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Fingerprint className="w-5 h-5" />}
+                {isLoading ? 'Capturing…' : 'Scan Fingerprint & Submit KYC'}
+              </button>
+              <button
+                onClick={() => setCurrentStep('kyc_form')}
+                className="w-full mt-3 py-2 text-gray-500 hover:text-gray-700 text-sm"
+              >
+                Edit details
+              </button>
+            </div>
+          )}
+
           {currentStep === 'kyc_pending' && (
             <div className="max-w-xl mx-auto bg-white rounded-2xl border border-amber-200 shadow-sm p-8 text-center">
               <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-amber-50 flex items-center justify-center">
@@ -2445,6 +2610,9 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
               isMockMode={isMockMode}
               initialWadh={wadh}
               deviceFingerprint={deviceFP}
+              isPay2New={isPay2New}
+              merchantAadhaar={merchantAadhaar}
+              onAadhaarChange={setMerchantAadhaar}
               onKycUpdateSuccess={(msg) => {
                 setError(null);
                 setNotification({ message: msg, type: 'success' });
