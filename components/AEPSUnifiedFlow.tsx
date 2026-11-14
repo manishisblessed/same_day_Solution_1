@@ -1070,6 +1070,7 @@ const BiometricLogin = ({
   isPay2New = false,
   merchantAadhaar = '',
   onAadhaarChange,
+  onKycRequired,
 }: {
   merchantInfo: MerchantInfo;
   onSuccess: (wadh: string) => void;
@@ -1081,6 +1082,7 @@ const BiometricLogin = ({
   isPay2New?: boolean;
   merchantAadhaar?: string;
   onAadhaarChange?: (aadhaar: string) => void;
+  onKycRequired?: (info: { needsBiometric: boolean; referenceKey?: string; pidOptionWadh?: string }) => void;
 }) => {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'processing' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -1191,6 +1193,15 @@ const BiometricLogin = ({
           setStatus('success');
           setMessage('Logged in successfully! Redirecting to transactions...');
           setTimeout(() => onSuccess(result.data?.wadh || ''), 1500);
+        } else if (result.kycRequired && onKycRequired) {
+          setStatus('error');
+          setMessage('Biometric KYC required. Redirecting...');
+          onKycRequired({
+            needsBiometric: result.needsBiometric,
+            referenceKey: result.referenceKey,
+            pidOptionWadh: result.pidOptionWadh,
+          });
+          return;
         } else if (result.retry) {
           setStatus('scanning');
           setMessage('KYC verified successfully! Retrying login automatically...');
@@ -2619,6 +2630,17 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
               onKycUpdateSuccess={(msg) => {
                 setError(null);
                 setNotification({ message: msg, type: 'success' });
+              }}
+              onKycRequired={(info) => {
+                if (info.needsBiometric && info.referenceKey) {
+                  setKycReferenceKey(info.referenceKey);
+                  setKycPidOptionWadh(info.pidOptionWadh || '');
+                  setCurrentStep('kyc_biometric');
+                  setNotification({ message: 'Biometric KYC required by Pay2New. Please scan your fingerprint.', type: 'warning' });
+                } else {
+                  setCurrentStep('kyc_form');
+                  setNotification({ message: 'KYC update required by Pay2New. Please re-submit.', type: 'warning' });
+                }
               }}
             />
           )}

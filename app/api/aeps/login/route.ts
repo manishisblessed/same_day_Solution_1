@@ -89,7 +89,17 @@ export async function POST(request: NextRequest) {
           .select('merchant_id')
           .eq('user_id', user.partner_id)
           .maybeSingle();
+        console.log('[AEPS Login] Pay2New: outletId=', merchantRec?.merchant_id, 'user=', user.partner_id);
         const p2nService = getPay2NewAepsService(merchantRec?.merchant_id || undefined);
+
+        // Quick pre-check: what does Pay2New say about biometric KYC?
+        try {
+          const kycCheck = await p2nService.checkBioKycStatus();
+          console.log('[AEPS Login] Pay2New bioKycStatus:', JSON.stringify(kycCheck));
+        } catch (kErr: any) {
+          console.warn('[AEPS Login] Pay2New bioKycStatus check failed:', kErr.message);
+        }
+
         const loginResult = await p2nService.merchantLogin({
           merchantAadhaar,
           latitude,
@@ -99,6 +109,7 @@ export async function POST(request: NextRequest) {
           rdFields: { dc, ci, hmac, dpId, mc, pidDataType, mi, rdsId, sessionKey, fCount, errCode, pCount, fType, iCount, pType, srno, pidData, qScore, nmPoints, rdsVer, errInfo, iType, sysid, ts, bioType },
         });
 
+        console.log('[AEPS Login] Pay2New loginResult:', JSON.stringify(loginResult));
         const success = loginResult.status === 1;
 
         if (success) {
@@ -120,14 +131,53 @@ export async function POST(request: NextRequest) {
             activity_description: 'Pay2New AePS merchant login successful',
             reference_id: merchantId,
           }).catch(() => {});
+
+          return NextResponse.json({
+            success: true,
+            message: loginResult.message || 'Login successful',
+            isMockMode: false,
+            data: { wadh: null, loginStatus: true, route: 'INSTANTPAY' },
+          });
+        }
+
+        // Pay2New says KYC required — re-check and tell frontend to redo KYC
+        const msg = (loginResult.message || '').toLowerCase();
+        if (msg.includes('kyc is required') || msg.includes('update your kyc') || msg.includes('kyc not')) {
+          console.log('[AEPS Login] Pay2New KYC not done — syncing local status to pending');
+          await supabase
+            .from('aeps_merchants')
+            .update({ kyc_status: 'pending', updated_at: new Date().toISOString() })
+            .eq('user_id', user.partner_id);
+
+          // Fetch the actual biometric KYC status so frontend knows what to do
+          let needsBiometric = false;
+          let referenceKey: string | null = null;
+          let pidOptionWadh: string | null = null;
+          try {
+            const kycCheck = await p2nService.checkBioKycStatus();
+            const kd = kycCheck.data;
+            needsBiometric = kd?.action === 'ACTION-REQUIRED';
+            referenceKey = kd?.referenceKey || null;
+            pidOptionWadh = kd?.pidOptionWadh || null;
+          } catch (_) {}
+
+          return NextResponse.json({
+            success: false,
+            error: loginResult.message,
+            kycRequired: true,
+            needsBiometric,
+            referenceKey,
+            pidOptionWadh,
+            data: { loginStatus: false },
+          }, { status: 400 });
         }
 
         return NextResponse.json({
-          success,
-          message: loginResult.message || (success ? 'Login successful' : 'Login failed'),
+          success: false,
+          message: loginResult.message || 'Login failed',
           isMockMode: false,
-          data: { wadh: null, loginStatus: success, route: 'INSTANTPAY' },
-        }, { status: success ? 200 : 400 });
+          data: { wadh: null, loginStatus: false, route: 'INSTANTPAY' },
+        }, { status: 400 });
       } catch (err: any) {
         console.error('[AEPS Login] Pay2New error:', err);
         return NextResponse.json(
