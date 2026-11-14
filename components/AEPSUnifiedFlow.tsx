@@ -2322,6 +2322,10 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
         const submittedKyc = result.data?.kycStatus || 'pending';
         // Retain Aadhaar in memory for Pay2New biometric KYC + daily login
         setMerchantAadhaar(cleanAadhaar);
+        // Detect Pay2New provider from response (needsBiometric field only exists in Pay2New responses)
+        if (typeof result.data?.needsBiometric === 'boolean') {
+          setIsPay2New(true);
+        }
         setMerchantInfo({
           merchant_id: result.data?.merchantId || user.partner_id,
           name: data.fullName,
@@ -2331,7 +2335,6 @@ export default function AEPSUnifiedFlow({ user }: { user: AEPSUser }) {
 
         // Pay2New: merchant must register their biometric before KYC is approved.
         if (result.data?.needsBiometric && result.data?.referenceKey) {
-          setIsPay2New(true);
           setKycReferenceKey(result.data.referenceKey);
           setKycPidOptionWadh(result.data.pidOptionWadh || '');
           setCurrentStep('kyc_biometric');
