@@ -11,6 +11,7 @@ import {
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { toUserSafeError } from '@/lib/provider-error'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,6 +43,10 @@ export async function OPTIONS(request: NextRequest) {
  * Records transaction in bbps_transactions for full reporting parity with BBPS-1/Pay2New.
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return addCorsHeaders(request, NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 }))
+  }
+
   try {
     const body = await request.json()
     const { user } = await getCurrentUserWithFallback(request)

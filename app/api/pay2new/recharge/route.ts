@@ -6,6 +6,7 @@ import { pay2newRecharge, settlePay2New } from '@/services/pay2new'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { toUserSafeError } from '@/lib/provider-error'
 import { createClient } from '@supabase/supabase-js'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,6 +25,10 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return addCorsHeaders(request, NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 }))
+  }
+
   try {
     const body = await request.json()
 

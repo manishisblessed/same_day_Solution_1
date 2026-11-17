@@ -13,6 +13,7 @@ import {
   finalizeIdempotencyKey,
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,10 @@ function getSupabase() {
  * Initiate settlement transfer to a verified account
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   try {
     let authResult
     try {

@@ -13,6 +13,7 @@ import { isBillerRateLimitError, BILLER_RATE_LIMIT_MESSAGE } from '@/lib/provide
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 import { getGlobalPay2newMax } from '@/lib/txn-limits'
 import { computeGst, getBbpsSlabGstInclusive } from '@/lib/scheme-gst'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,10 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return addCorsHeaders(request, NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 }))
+  }
+
   try {
     const body = await request.json()
 

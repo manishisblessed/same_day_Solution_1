@@ -6,6 +6,7 @@ import { getRequestContext, logActivityFromContext } from '@/lib/activity-logger
 import { calculatePayoutCharge, resolveSchemeForUser } from '@/lib/scheme/scheme.service'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringPayoutSlab } from '@/lib/scheme-guard'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 // Generate idempotency key using crypto
 function generateIdempotencyKey(prefix: string): string {
@@ -152,6 +153,10 @@ async function checkSettlementLimits(
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   const rl = rateLimit(request, RATE_LIMITS.transfer)
   if (rl.limited) return rl.response!
 

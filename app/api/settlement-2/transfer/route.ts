@@ -15,6 +15,7 @@ import { toUserSafeError } from '@/lib/provider-error'
 import { distributeServiceCommission, reverseServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
 import { computeGst, getShadvalSlabGstInclusive } from '@/lib/scheme-gst'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,10 @@ export async function OPTIONS(request: NextRequest) {
  * Charges are debited from retailer's wallet and credited to company revenue.
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return addCorsHeaders(request, NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 }))
+  }
+
   const rl = rateLimit(request, RATE_LIMITS.transfer)
   if (rl.limited) return addCorsHeaders(request, rl.response!)
 

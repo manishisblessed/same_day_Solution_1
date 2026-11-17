@@ -17,6 +17,7 @@ import { calculateAEPSCommission } from '@/lib/pricing/aeps-pricing';
 import { settleAEPSCommission } from '@/services/aeps/settle-commission';
 import { formatErrorForReceipt, cleanProviderMessage } from '@/services/aeps/error-codes';
 import type { AEPSTransactionType } from '@/types/aeps.types';
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,10 @@ function isValidUtr(utr?: string | null): boolean {
  * - Withdrawal/deposit amounts update the wallet; bank balance is NOT stored
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 });
+  }
+
   const rl = rateLimit(request, RATE_LIMITS.aeps);
   if (rl.limited) return rl.response!;
 

@@ -12,6 +12,7 @@ import {
 import { resolvePartnerPayoutCharge, partnerHasCoveringPayoutSlab } from '@/lib/payout-charge'
 import { bookPartnerRevenue } from '@/lib/commission/partner-revenue'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB } from '@/lib/scheme-guard'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,10 @@ function getSupabase() {
  * Feature gate: Settlement / Payout must be enabled for this partner by admin.
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   const idemKey = getIdempotencyKeyFromHeaders(request.headers)
   const IDEM_SCOPE = 'partner_knteer_payout'
 

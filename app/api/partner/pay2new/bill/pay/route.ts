@@ -11,6 +11,7 @@ import { findPriorPay2NewAttempt, resolvePay2NewDebitState, type Pay2NewResolved
 import { buildPay2NewStatusPayload, type Pay2NewStatusPayloadInput } from '@/lib/partner-webhook/pay2new-payload'
 import { deliverPartnerCallbackByPartnerId } from '@/lib/partner-webhook/deliver'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -108,6 +109,10 @@ function replayResponse(r: Pay2NewResolvedState) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   try {
     let authResult
     try {

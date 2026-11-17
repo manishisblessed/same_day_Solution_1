@@ -9,11 +9,16 @@ import {
   finalizeIdempotencyKey,
   getIdempotencyKeyFromHeaders,
 } from '@/lib/security/idempotency'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs' // Force Node.js runtime (Supabase not compatible with Edge Runtime)
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   const rl = rateLimit(request, RATE_LIMITS.transfer)
   if (rl.limited) return rl.response!
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { addCorsHeaders, handleCorsPreflight } from '@/lib/cors'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
+import { invalidatePortalCache } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -113,6 +114,8 @@ export async function POST(request: NextRequest) {
         new_value: String(body.master_switch),
         performed_by: adminEmail,
       })
+
+      invalidatePortalCache()
 
       return addCorsHeaders(request, NextResponse.json({ success: true }))
     }

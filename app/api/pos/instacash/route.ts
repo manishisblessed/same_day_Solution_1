@@ -24,6 +24,7 @@ import {
   calculateMDR as calculateSchemeMDR,
 } from '@/lib/mdr-scheme/settlement.service'
 import type { SettlementType } from '@/types/mdr-scheme.types'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,6 +38,10 @@ export const dynamic = 'force-dynamic'
  * }
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   try {
     // 1. Authenticate user
     const { user, method } = await getCurrentUserWithFallback(request)

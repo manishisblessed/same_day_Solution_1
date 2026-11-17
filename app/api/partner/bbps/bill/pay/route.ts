@@ -5,6 +5,7 @@ import { payRequest, generateAgentTransactionId, getBBPSWalletBalance } from '@/
 import { paiseToRupees } from '@/lib/bbps/currency'
 import { distributeServiceCommission } from '@/lib/commission/distribute-service-commission'
 import { SCHEME_NOT_ASSIGNED, SCHEME_NOT_ASSIGNED_STATUS, SCHEME_NO_VALID_SLAB, hasCoveringBbpsSlab } from '@/lib/scheme-guard'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,10 @@ function getSupabase() {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 })
+  }
+
   try {
     let authResult
     try {

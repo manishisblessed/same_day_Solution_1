@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { createClient } from '@supabase/supabase-js'
+import { isPortalOnline } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,19 @@ export async function GET(request: NextRequest) {
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // If master switch is OFF, return all services disabled for every role
+    const portalOnline = await isPortalOnline()
+    if (!portalOnline) {
+      return NextResponse.json(
+        {
+          services: Object.fromEntries(SERVICE_KEYS.map((k) => [k, false])),
+          hasAnyEnabled: false,
+          portalOffline: true,
+        },
+        { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } }
+      )
     }
 
     if (!['retailer', 'distributor', 'master_distributor', 'partner', 'master_partner', 'sub_partner'].includes(user.role)) {

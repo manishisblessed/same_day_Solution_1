@@ -14,6 +14,7 @@ import { distributeServiceCommission, reverseServiceCommission } from '@/lib/com
 import { initiateKnteerTransfer, generateRefId, getKnteerBalance } from '@/services/knteer-payout'
 import { refundKnteerPayout } from '@/lib/knteer/refund'
 import { createClient } from '@supabase/supabase-js'
+import { isPortalOnline, PORTAL_OFFLINE_RESPONSE } from '@/lib/portal-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,6 +47,10 @@ export async function OPTIONS(request: NextRequest) {
  * }
  */
 export async function POST(request: NextRequest) {
+  if (!(await isPortalOnline())) {
+    return addCorsHeaders(request, NextResponse.json(PORTAL_OFFLINE_RESPONSE, { status: 503 }))
+  }
+
   const rl = rateLimit(request, RATE_LIMITS.payout)
   if (rl.limited) return addCorsHeaders(request, rl.response!)
 
