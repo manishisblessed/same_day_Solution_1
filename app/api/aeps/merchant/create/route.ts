@@ -220,7 +220,10 @@ export async function POST(request: NextRequest) {
         const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
           || request.headers.get('x-real-ip')
           || '127.0.0.1';
-        const requestId = `MERC_${user.partner_id}_${Date.now()}`;
+        // Pay2New: request_id max 30 chars. Use short prefix + truncated partner_id + timestamp suffix.
+        const pid = (user.partner_id || '').slice(-8);
+        const ts = Date.now().toString(36);
+        const requestId = `M${pid}_${ts}`.slice(0, 30);
 
         // Normalise DOB to YYYY-MM-DD
         let dobFormatted = dateOfBirth || '';
