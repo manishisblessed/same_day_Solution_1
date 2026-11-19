@@ -7,6 +7,11 @@ export interface LeegalityInvitee {
   signingOrder?: number
 }
 
+export interface LeegalityStampConfig {
+  /** Stamp series ID as configured in Leegality dashboard (e.g., "01") */
+  seriesId: string
+}
+
 export interface LeegalityCreateRequest {
   profileId: string
   invitees: LeegalityInvitee[]
@@ -17,6 +22,8 @@ export interface LeegalityCreateRequest {
   fields?: Record<string, string>
   irn?: string
   expiry?: number
+  /** e-Stamp paper configuration (optional) */
+  stamp?: LeegalityStampConfig
 }
 
 export interface LeegalityCreateResponse {

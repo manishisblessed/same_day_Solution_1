@@ -3,7 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getVerifications } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
-import { getLeegalityWorkflowId } from '@/services/leegality/config'
+import { getLeegalityWorkflowId, getLeegalityStampSeriesId } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -110,7 +110,9 @@ export async function POST(request: NextRequest) {
     const fileBase64 = pdfBuffer.toString('base64')
     const irn = `SDS-MSA-${invite.id.substring(0, 8).toUpperCase()}-${Date.now()}`
 
-    // Send to Leegality — partner signs first, then company signatory
+    const stampSeriesId = getLeegalityStampSeriesId()
+
+    // Send to Leegality — partner signs first (order 1), company signatory second (order 2)
     const result = await createSigningRequest({
       profileId: getLeegalityWorkflowId(),
       invitees: [
@@ -122,6 +124,7 @@ export async function POST(request: NextRequest) {
         file: fileBase64,
       },
       irn,
+      ...(stampSeriesId ? { stamp: { seriesId: stampSeriesId } } : {}),
     })
 
     // Save to DB

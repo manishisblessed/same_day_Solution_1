@@ -21,3 +21,7 @@ export function getLeegalityTimeout(): number {
 export function isLeegalitySandbox(): boolean {
   return getLeegalityBaseUrl().includes('sandbox')
 }
+
+export function getLeegalityStampSeriesId(): string | undefined {
+  return process.env.LEEGALITY_STAMP_SERIES_ID || undefined
+}

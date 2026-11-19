@@ -133,7 +133,8 @@ jobs:
               "LEEGALITY_WORKFLOW_ID=8SVyIPv" \
               "LEEGALITY_TIMEOUT=30000" \
               "LEEGALITY_WEBHOOK_URL=https://samedaysolution.in/api/esign/webhook" \
-              "LEEGALITY_REDIRECT_URL=https://samedaysolution.in/esign/complete"; do
+              "LEEGALITY_REDIRECT_URL=https://samedaysolution.in/esign/complete" \
+              "LEEGALITY_STAMP_SERIES_ID=01"; do
               key="${kv%%=*}"
               sed -i "/^${key}=/d" .env.local
               echo "$kv" >> .env.local
