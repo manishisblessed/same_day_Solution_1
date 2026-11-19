@@ -138,7 +138,7 @@ export async function sendWhatsApp(args: {
   }
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${twilioBasicAuth()}`,
@@ -146,7 +146,23 @@ export async function sendWhatsApp(args: {
       },
       body: form.toString(),
     })
-    const data = await res.json().catch(() => ({}))
+    let data = await res.json().catch(() => ({}))
+
+    // If template failed (not approved / rejected), retry with free-form body
+    if (!res.ok && templateSid && args.body) {
+      console.warn(`[whatsapp:twilio] Template failed (${res.status}), retrying with free-form body`)
+      const fallbackForm = new URLSearchParams({ To: to, From: from, Body: args.body })
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${twilioBasicAuth()}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: fallbackForm.toString(),
+      })
+      data = await res.json().catch(() => ({}))
+    }
+
     if (!res.ok) {
       console.error('[whatsapp:twilio] failed', res.status, data)
       return { ok: false, provider: 'twilio', error: data?.message || `HTTP ${res.status}` }

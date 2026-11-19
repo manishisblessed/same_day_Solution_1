@@ -25,3 +25,7 @@ export function isLeegalitySandbox(): boolean {
 export function getLeegalityStampSeriesId(): string | undefined {
   return process.env.LEEGALITY_STAMP_SERIES_ID || undefined
 }
+
+export function getLeegalityWebhookUrl(): string | undefined {
+  return process.env.LEEGALITY_WEBHOOK_URL || undefined
+}

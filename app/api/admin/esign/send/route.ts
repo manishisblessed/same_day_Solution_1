@@ -3,7 +3,7 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getVerifications } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
-import { getLeegalityWorkflowId, getLeegalityStampSeriesId } from '@/services/leegality/config'
+import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 
 const COMPANY_SIGNATORY = {
   name: 'Manish Kumar',
-  email: 'manish_kumar@samedaysolution.in',
+  email: 'legal@samedaysolution.in',
   phone: '7399599958',
 }
 
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     const irn = `SDS-MSA-${invite.id.substring(0, 8).toUpperCase()}-${Date.now()}`
 
     const stampSeriesId = getLeegalityStampSeriesId()
+    const webhookUrl = getLeegalityWebhookUrl()
 
     // Send to Leegality — partner signs first (order 1), company signatory second (order 2)
     const result = await createSigningRequest({
@@ -125,6 +126,7 @@ export async function POST(request: NextRequest) {
       },
       irn,
       ...(stampSeriesId ? { stampSeries: stampSeriesId } : {}),
+      ...(webhookUrl ? { webhook: webhookUrl, webhookVersion: '2.1' } : {}),
     })
 
     // Save to DB

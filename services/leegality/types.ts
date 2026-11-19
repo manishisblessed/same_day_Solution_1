@@ -19,6 +19,12 @@ export interface LeegalityCreateRequest {
   expiry?: number
   /** e-Stamp series ID (e.g., "01") — confirmed from Leegality dashboard network payload */
   stampSeries?: string
+  /** Webhook URL for signing events — explicitly passed to ensure Leegality calls it */
+  webhook?: string
+  /** Error webhook URL */
+  errorWebhook?: string
+  /** Webhook version (e.g., "2.1") */
+  webhookVersion?: string
 }
 
 export interface LeegalityCreateResponse {

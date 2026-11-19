@@ -10,8 +10,15 @@ export const dynamic = 'force-dynamic'
 
 const ESIGN_WEBHOOK_SECRET = process.env.ESIGN_WEBHOOK_SECRET
 
+/** Health check — confirms webhook endpoint is live */
+export async function GET() {
+  return NextResponse.json({ status: 'ok', endpoint: 'esign-webhook', ts: new Date().toISOString() })
+}
+
 export async function POST(request: NextRequest) {
   try {
+    console.log('[eSign Webhook] ← Incoming POST request')
+
     const authHeader = request.headers.get('x-webhook-secret') || request.headers.get('authorization')
     if (ESIGN_WEBHOOK_SECRET) {
       if (!authHeader || authHeader.replace('Bearer ', '') !== ESIGN_WEBHOOK_SECRET) {
@@ -19,10 +26,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
     } else {
-      console.warn('[eSign Webhook] ESIGN_WEBHOOK_SECRET not configured — skipping auth (configure in production!)')
+      console.log('[eSign Webhook] No ESIGN_WEBHOOK_SECRET configured — accepting request')
     }
 
     const raw: any = await request.json()
+    console.log('[eSign Webhook] Raw payload:', JSON.stringify(raw).substring(0, 500))
     // Leegality webhook shape is undocumented in the provided collection and
     // varies by version; normalize the fields we rely on defensively.
     const body = raw?.data ?? raw ?? {}
