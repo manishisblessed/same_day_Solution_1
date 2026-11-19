@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
         file: fileBase64,
       },
       irn,
-      ...(stampSeriesId ? { stamp: { seriesId: stampSeriesId } } : {}),
+      ...(stampSeriesId ? { stampSeries: stampSeriesId } : {}),
     })
 
     // Save to DB
