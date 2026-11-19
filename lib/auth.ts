@@ -163,22 +163,36 @@ async function completeSignIn(
     )
   }
 
-  // Register single-session token (invalidates any previous session for this user)
+  // Register single-session token (invalidates any previous session for this user).
+  // Retry once on failure: if the token isn't in the DB the heartbeat will kick
+  // the user 15 s after login with "session expired".
   if (typeof window !== 'undefined') {
     const sessionToken = generateSessionToken()
     setStoredSessionToken(sessionToken)
+    const registerPayload = {
+      method: 'POST',
+      credentials: 'include' as const,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authData.session.access_token}`,
+      },
+      body: JSON.stringify({ session_token: sessionToken }),
+    }
     try {
-      await fetch(authApiUrl('/api/auth/register-session'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authData.session.access_token}`,
-        },
-        body: JSON.stringify({ session_token: sessionToken }),
-      })
+      const regRes = await fetch(authApiUrl('/api/auth/register-session'), registerPayload)
+      if (!regRes.ok) {
+        // First attempt returned an error — wait briefly and retry once
+        await new Promise((r) => setTimeout(r, 1500))
+        await fetch(authApiUrl('/api/auth/register-session'), registerPayload)
+      }
     } catch {
-      // Best-effort — don't block login if session registration fails
+      // Network error on first attempt — retry once after a short delay
+      try {
+        await new Promise((r) => setTimeout(r, 1500))
+        await fetch(authApiUrl('/api/auth/register-session'), registerPayload)
+      } catch {
+        // Both attempts failed — login still succeeds but heartbeat may kick after 15 s
+      }
     }
   }
 

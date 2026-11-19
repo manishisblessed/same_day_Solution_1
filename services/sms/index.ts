@@ -86,3 +86,89 @@ export function inviteSmsBody(opts: { inviterName?: string | null; roleLabel: st
   const inviter = opts.inviterName ? `${opts.inviterName} has ` : 'You have been '
   return `${inviter}invited you to join Same Day Solution as a ${opts.roleLabel}. Complete your KYC & registration here: ${opts.link}`
 }
+
+// ── WhatsApp via Twilio ───────────────────────────────────────────────────────
+
+/**
+ * Check if Twilio WhatsApp is configured.
+ * Requires TWILIO_WHATSAPP_FROM in addition to base Twilio credentials.
+ * Sandbox value: whatsapp:+14155238886
+ */
+export function isWhatsAppConfigured(): boolean {
+  return !!(
+    getEnv('TWILIO_ACCOUNT_SID') &&
+    getEnv('TWILIO_AUTH_TOKEN') &&
+    getEnv('TWILIO_WHATSAPP_FROM')
+  )
+}
+
+/**
+ * Send a WhatsApp message via Twilio.
+ * - If TWILIO_WHATSAPP_TEMPLATE_SID is set, uses a pre-approved Content Template
+ *   (required for outbound messages to non-sandbox numbers).
+ * - Otherwise falls back to free-form body (works only for sandbox opted-in numbers).
+ * `to` can be a plain 10-digit number — it will be prefixed with whatsapp:+91.
+ */
+export async function sendWhatsApp(args: {
+  to: string
+  body: string
+  /** Named variables for the template, e.g. { '1': 'Manish Kumar' } */
+  variables?: Record<string, string>
+}): Promise<SendSmsResult> {
+  if (!isWhatsAppConfigured()) {
+    console.warn(`[whatsapp:mock] to=${args.to} body="${args.body.slice(0, 60)}…"`)
+    return { ok: true, provider: 'mock' }
+  }
+
+  const accountSid = getEnv('TWILIO_ACCOUNT_SID') as string
+  const from = getEnv('TWILIO_WHATSAPP_FROM') as string
+  const templateSid = getEnv('TWILIO_WHATSAPP_TEMPLATE_SID')
+  const to = args.to.startsWith('whatsapp:') ? args.to : `whatsapp:${normalizePhone(args.to)}`
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`
+  const form = new URLSearchParams({ To: to, From: from })
+
+  if (templateSid && args.variables) {
+    // Use pre-approved Content Template (production)
+    form.set('ContentSid', templateSid)
+    form.set('ContentVariables', JSON.stringify(args.variables))
+  } else {
+    // Free-form body (sandbox only)
+    form.set('Body', args.body)
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${twilioBasicAuth()}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      console.error('[whatsapp:twilio] failed', res.status, data)
+      return { ok: false, provider: 'twilio', error: data?.message || `HTTP ${res.status}` }
+    }
+    return { ok: true, provider: 'twilio', sid: data?.sid }
+  } catch (err: any) {
+    console.error('[whatsapp:twilio] exception', err?.message)
+    return { ok: false, provider: 'twilio', error: err?.message }
+  }
+}
+
+/** WhatsApp message body sent to partner after agreement is fully signed (sandbox fallback). */
+export function agreementSignedWhatsAppBody(partnerName: string): string {
+  return `Dear ${partnerName || 'Partner'},
+
+Your Partner Agreement with *Same Day Solution Pvt. Ltd.* has been fully executed by both parties. ✅
+
+A copy of the signed agreement has been sent to your registered email address.
+
+For any queries:
+📞 7399599958
+📧 grievance@samedaysolution.in
+
+— Same Day Solution Pvt. Ltd.`
+}

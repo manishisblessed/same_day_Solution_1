@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { upsertVerification } from '@/lib/onboarding/invites'
 import { fetchDocument } from '@/services/leegality/client'
 import { sendEmail } from '@/services/email'
+import { sendWhatsApp, agreementSignedWhatsAppBody } from '@/services/sms'
 import type { LeegalityWebhookPayload } from '@/services/leegality/types'
 
 export const dynamic = 'force-dynamic'
@@ -165,8 +166,23 @@ export async function POST(request: NextRequest) {
           })
           console.log(`[eSigning Webhook] Emailed signed agreement to ${invite.email}`)
         }
+
+        // Send WhatsApp notification to partner
+        if (invite?.phone) {
+          try {
+            const partnerName = invite.name || 'Partner'
+            const waResult = await sendWhatsApp({
+              to: invite.phone,
+              body: agreementSignedWhatsAppBody(partnerName),
+              variables: { '1': partnerName },
+            })
+            console.log(`[eSigning Webhook] WhatsApp to ${invite.phone}: ${waResult.ok ? 'sent' : waResult.error}`)
+          } catch (waErr: any) {
+            console.error('[eSigning Webhook] WhatsApp failed:', waErr?.message)
+          }
+        }
       } catch (emailErr: any) {
-        // Don't fail the webhook if email fails
+        // Don't fail the webhook if email/WhatsApp fails
         console.error('[eSigning Webhook] Failed to email signed agreement:', emailErr?.message)
       }
     }

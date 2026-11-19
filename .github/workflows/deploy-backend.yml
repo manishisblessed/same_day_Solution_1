@@ -134,7 +134,9 @@ jobs:
               "LEEGALITY_TIMEOUT=30000" \
               "LEEGALITY_WEBHOOK_URL=https://samedaysolution.in/api/esign/webhook" \
               "LEEGALITY_REDIRECT_URL=https://samedaysolution.in/esign/complete" \
-              "LEEGALITY_STAMP_SERIES_ID=01"; do
+              "LEEGALITY_STAMP_SERIES_ID=01" \
+              "TWILIO_WHATSAPP_FROM=whatsapp:+918287373109" \
+              "TWILIO_WHATSAPP_TEMPLATE_SID=HXbb5daf45860c36f409a2c27577935106"; do
               key="${kv%%=*}"
               sed -i "/^${key}=/d" .env.local
               echo "$kv" >> .env.local

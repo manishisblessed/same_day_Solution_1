@@ -62,6 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_user')
       localStorage.removeItem('auth_user_timestamp')
+      localStorage.removeItem('sessionStartTime')
+      localStorage.removeItem('sessionDuration')
+      localStorage.removeItem('lastActivityTime')
+      localStorage.removeItem('sessionExtended')
     }
     setUser(null)
   }, [])
@@ -148,7 +152,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    validate()
+    // Don't fire immediately — let the first interval tick (15s) be the first
+    // check. Firing instantly after login races against register-session: if that
+    // call failed silently, the token isn't in the DB yet and we'd kick the user
+    // straight back to login. Middleware already rejects dead sessions on page
+    // load, so skipping the immediate check loses nothing.
     heartbeatRef.current = setInterval(validate, 15_000)
   }, [])
 
@@ -243,6 +251,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     kickingRef.current = false
     setSessionKicked(false)
     setKickReason(null)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sessionStartTime')
+      localStorage.removeItem('sessionDuration')
+      localStorage.removeItem('lastActivityTime')
+      localStorage.removeItem('sessionExtended')
+    }
     try {
       const result = await signIn(email, password, role as any, captchaToken)
       setUser(result.user)
@@ -319,6 +333,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     kickingRef.current = false
     setSessionKicked(false)
     setKickReason(null)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sessionStartTime')
+      localStorage.removeItem('sessionDuration')
+      localStorage.removeItem('lastActivityTime')
+      localStorage.removeItem('sessionExtended')
+    }
     try {
       const result = await complete2FALogin(email, password, role as any, totpCode, isBackup)
       setUser(result.user)
