@@ -11,7 +11,7 @@ export {
   eSignDocSigner,
 } from './client'
 
-export { getLeegalityWorkflowId, isLeegalitySandbox } from './config'
+export { getLeegalityWorkflowId, isLeegalitySandbox, getCompanySignatory, getDocSignerProfileId } from './config'
 
 export type {
   LeegalityInvitee,

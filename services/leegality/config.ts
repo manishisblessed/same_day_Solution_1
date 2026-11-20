@@ -29,3 +29,15 @@ export function getLeegalityStampSeriesId(): string | undefined {
 export function getLeegalityWebhookUrl(): string | undefined {
   return process.env.LEEGALITY_WEBHOOK_URL || undefined
 }
+
+export function getCompanySignatory(): { name: string; email: string; phone: string } {
+  return {
+    name: process.env.COMPANY_SIGNATORY_NAME || 'Manish Kumar',
+    email: process.env.COMPANY_SIGNATORY_EMAIL || 'manish_kumar@samedaysolution.in',
+    phone: process.env.COMPANY_SIGNATORY_PHONE || '7399599958',
+  }
+}
+
+export function getDocSignerProfileId(): string | undefined {
+  return process.env.LEEGALITY_DOCSIGNER_PROFILE_ID || undefined
+}

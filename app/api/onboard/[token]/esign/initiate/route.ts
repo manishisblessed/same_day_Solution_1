@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, getVerifications, upsertVerification, OPEN_INVITE_STATUSES } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
-import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl } from '@/services/leegality/config'
+import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl, getCompanySignatory } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -117,11 +117,7 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
     const irn = `SDS-MSA-${invite.id.substring(0, 8).toUpperCase()}-${Date.now()}`
 
     // Send to Leegality for eSigning — sequential: partner signs first, then company
-    const COMPANY_SIGNATORY = {
-      name: 'Manish Kumar',
-      email: 'manish_kumar@samedaysolution.in',
-      phone: '7399599958',
-    }
+    const COMPANY_SIGNATORY = getCompanySignatory()
 
     const stampSeriesId = getLeegalityStampSeriesId()
     const webhookUrl = getLeegalityWebhookUrl()
@@ -133,11 +129,9 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
           name,
           email: invite.email || undefined,
           phone: invite.phone || undefined,
-          signingOrder: 1,
         },
         {
           ...COMPANY_SIGNATORY,
-          signingOrder: 2,
         },
       ],
       file: {

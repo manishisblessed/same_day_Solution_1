@@ -3,17 +3,13 @@ import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getVerifications } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
-import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl } from '@/services/leegality/config'
+import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl, getCompanySignatory } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
 export const dynamic = 'force-dynamic'
 
-const COMPANY_SIGNATORY = {
-  name: 'Manish Kumar',
-  email: 'legal@samedaysolution.in',
-  phone: '7399599958',
-}
+const COMPANY_SIGNATORY = getCompanySignatory()
 
 /**
  * POST /api/admin/esign/send
@@ -113,12 +109,12 @@ export async function POST(request: NextRequest) {
     const stampSeriesId = getLeegalityStampSeriesId()
     const webhookUrl = getLeegalityWebhookUrl()
 
-    // Send to Leegality — partner signs first (order 1), company signatory second (order 2)
+    // Send to Leegality — both parties get signing links simultaneously (parallel signing)
     const result = await createSigningRequest({
       profileId: getLeegalityWorkflowId(),
       invitees: [
-        { name, email: invite.email || undefined, phone: invite.phone || undefined, signingOrder: 1 },
-        { ...COMPANY_SIGNATORY, signingOrder: 2 },
+        { name, email: invite.email || undefined, phone: invite.phone || undefined },
+        { ...COMPANY_SIGNATORY },
       ],
       file: {
         name: `Partner-Agreement-${name.replace(/\s+/g, '-')}.pdf`,
