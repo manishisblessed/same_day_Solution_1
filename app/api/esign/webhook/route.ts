@@ -138,60 +138,94 @@ export async function POST(request: NextRequest) {
         payload: { documentId, method: 'esign' },
       })
 
+      // Notify the partner — email (with signed PDF) and WhatsApp are independent
+      const { data: invite } = await supabase
+        .from('onboarding_invites')
+        .select('name, email, phone')
+        .eq('id', updatedDoc.invite_id)
+        .maybeSingle()
+
       // Email the signed agreement to the partner
-      try {
-        const { data: invite } = await supabase
-          .from('onboarding_invites')
-          .select('name, email, phone')
-          .eq('id', updatedDoc.invite_id)
-          .maybeSingle()
+      if (invite?.email) {
+        try {
+          let pdfBuffer: Buffer | null = null
 
-        if (invite?.email) {
-          // Fetch signed PDF from Leegality
-          const { url: pdfUrl } = await fetchDocument(documentId, 'DOCUMENT')
-          const pdfRes = await fetch(pdfUrl)
-          const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())
-
-          await sendEmail({
-            to: invite.email,
-            subject: 'Your Signed Partner Agreement — Same Day Solution',
-            html: `
-              <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-                <h2 style="color:#1e293b">Partner Agreement Signed Successfully</h2>
-                <p>Dear ${invite.name || 'Partner'},</p>
-                <p>Your Master Service Agreement with <strong>Same Day Solution Pvt. Ltd.</strong> has been signed by both parties.</p>
-                <p>Please find the fully executed agreement attached to this email for your records.</p>
-                <br/>
-                <p style="color:#64748b;font-size:13px">This is an auto-generated email. For any queries, contact us at <a href="mailto:grievance@samedaysolution.in">grievance@samedaysolution.in</a> or call 7399599958.</p>
-                <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
-                <p style="color:#94a3b8;font-size:11px">Same Day Solution Pvt. Ltd. | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078</p>
-              </div>`,
-            attachments: [{
-              filename: `Partner-Agreement-${(invite.name || 'Signed').replace(/\s+/g, '-')}.pdf`,
-              content: pdfBuffer,
-              contentType: 'application/pdf',
-            }],
-          })
-          console.log(`[eSigning Webhook] Emailed signed agreement to ${invite.email}`)
-        }
-
-        // Send WhatsApp notification to partner
-        if (invite?.phone) {
+          // Try Leegality fetchDocument API first; fall back to the webhook-provided file URL
           try {
-            const partnerName = invite.name || 'Partner'
-            const waResult = await sendWhatsApp({
-              to: invite.phone,
-              body: agreementSignedWhatsAppBody(partnerName),
-              variables: { '1': partnerName },
-            })
-            console.log(`[eSigning Webhook] WhatsApp to ${invite.phone}: ${waResult.ok ? 'sent' : waResult.error}`)
-          } catch (waErr: any) {
-            console.error('[eSigning Webhook] WhatsApp failed:', waErr?.message)
+            const { url: pdfUrl } = await fetchDocument(documentId, 'DOCUMENT')
+            const pdfRes = await fetch(pdfUrl)
+            if (pdfRes.ok) pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())
+          } catch (fetchErr: any) {
+            console.warn(`[eSigning Webhook] fetchDocument failed, trying webhook file URL: ${fetchErr?.message}`)
           }
+
+          if (!pdfBuffer && file) {
+            try {
+              const fallbackRes = await fetch(file)
+              if (fallbackRes.ok) pdfBuffer = Buffer.from(await fallbackRes.arrayBuffer())
+            } catch (fallbackErr: any) {
+              console.warn(`[eSigning Webhook] Webhook file URL also failed: ${fallbackErr?.message}`)
+            }
+          }
+
+          if (pdfBuffer) {
+            await sendEmail({
+              to: invite.email,
+              subject: 'Your Signed Partner Agreement — Same Day Solution',
+              html: `
+                <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                  <h2 style="color:#1e293b">Partner Agreement Signed Successfully</h2>
+                  <p>Dear ${invite.name || 'Partner'},</p>
+                  <p>Your Master Service Agreement with <strong>Same Day Solution Pvt. Ltd.</strong> has been signed by both parties.</p>
+                  <p>Please find the fully executed agreement attached to this email for your records.</p>
+                  <br/>
+                  <p style="color:#64748b;font-size:13px">This is an auto-generated email. For any queries, contact us at <a href="mailto:grievance@samedaysolution.in">grievance@samedaysolution.in</a> or call 7399599958.</p>
+                  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+                  <p style="color:#94a3b8;font-size:11px">Same Day Solution Pvt. Ltd. | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078</p>
+                </div>`,
+              attachments: [{
+                filename: `Partner-Agreement-${(invite.name || 'Signed').replace(/\s+/g, '-')}.pdf`,
+                content: pdfBuffer,
+                contentType: 'application/pdf',
+              }],
+            })
+            console.log(`[eSigning Webhook] Emailed signed agreement to ${invite.email}`)
+          } else {
+            console.error('[eSigning Webhook] Could not obtain signed PDF — email sent without attachment')
+            await sendEmail({
+              to: invite.email,
+              subject: 'Your Signed Partner Agreement — Same Day Solution',
+              html: `
+                <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                  <h2 style="color:#1e293b">Partner Agreement Signed Successfully</h2>
+                  <p>Dear ${invite.name || 'Partner'},</p>
+                  <p>Your Master Service Agreement with <strong>Same Day Solution Pvt. Ltd.</strong> has been signed by both parties.</p>
+                  <p>The signed agreement will be available for download from your partner dashboard shortly.</p>
+                  <br/>
+                  <p style="color:#64748b;font-size:13px">This is an auto-generated email. For any queries, contact us at <a href="mailto:grievance@samedaysolution.in">grievance@samedaysolution.in</a> or call 7399599958.</p>
+                  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+                  <p style="color:#94a3b8;font-size:11px">Same Day Solution Pvt. Ltd. | TF-11B, 3rd Floor, Eros Metro Mall, Dwarka Sector-14, New Delhi – 110078</p>
+                </div>`,
+            })
+          }
+        } catch (emailErr: any) {
+          console.error('[eSigning Webhook] Failed to email signed agreement:', emailErr?.message)
         }
-      } catch (emailErr: any) {
-        // Don't fail the webhook if email/WhatsApp fails
-        console.error('[eSigning Webhook] Failed to email signed agreement:', emailErr?.message)
+      }
+
+      // Send WhatsApp notification to partner (independent of email)
+      if (invite?.phone) {
+        try {
+          const partnerName = invite.name || 'Partner'
+          const waResult = await sendWhatsApp({
+            to: invite.phone,
+            body: agreementSignedWhatsAppBody(partnerName),
+            variables: { '1': partnerName },
+          })
+          console.log(`[eSigning Webhook] WhatsApp to ${invite.phone}: ${waResult.ok ? 'sent' : waResult.error}`)
+        } catch (waErr: any) {
+          console.error('[eSigning Webhook] WhatsApp failed:', waErr?.message)
+        }
       }
     }
 

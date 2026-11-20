@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, getVerifications, upsertVerification, OPEN_INVITE_STATUSES } from '@/lib/onboarding/invites'
 import { createSigningRequest } from '@/services/leegality/client'
-import { getLeegalityWorkflowId } from '@/services/leegality/config'
+import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
 
@@ -123,6 +123,9 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
       phone: '7399599958',
     }
 
+    const stampSeriesId = getLeegalityStampSeriesId()
+    const webhookUrl = getLeegalityWebhookUrl()
+
     const result = await createSigningRequest({
       profileId: getLeegalityWorkflowId(),
       invitees: [
@@ -142,6 +145,8 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
         file: fileBase64,
       },
       irn,
+      ...(stampSeriesId ? { stampSeries: stampSeriesId } : {}),
+      ...(webhookUrl ? { webhook: webhookUrl, webhookVersion: '2.1' } : {}),
     })
 
     // Save to DB with invite_id link
