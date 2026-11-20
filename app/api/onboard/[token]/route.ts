@@ -66,10 +66,10 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
 
     const prefill = {
       name:
-        invite.name ||
         pan?.registered_name ||
         aadhaar?.name ||
         bank?.nameAtBank ||
+        invite.name ||
         '',
       email: invite.email,
       phone: invite.phone,
