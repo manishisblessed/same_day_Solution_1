@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { loadInviteByToken, getVerifications, upsertVerification, OPEN_INVITE_STATUSES } from '@/lib/onboarding/invites'
-import { createSigningRequest } from '@/services/leegality/client'
+import { createSigningRequest, resendNotification } from '@/services/leegality/client'
 import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl, getCompanySignatory } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
@@ -173,6 +173,18 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
           signing_order: idx + 1,
         }))
       )
+    }
+
+    // Explicitly resend notification to company signatory — Leegality may skip
+    // email for invitees it considers internal/account members
+    const companySignUrl = result.invitees?.[1]?.signUrl
+    if (companySignUrl) {
+      try {
+        await resendNotification([companySignUrl])
+        console.log('[esign/initiate] Resent signing notification to company signatory')
+      } catch (resendErr) {
+        console.warn('[esign/initiate] Failed to resend to company signatory:', resendErr)
+      }
     }
 
     // Return the partner's signing URL (first invitee)
