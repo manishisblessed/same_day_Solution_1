@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserWithFallback } from '@/lib/auth-server'
 import { getSupabaseAdmin } from '@/lib/supabase/server-admin'
 import { getVerifications } from '@/lib/onboarding/invites'
-import { createSigningRequest, resendNotification } from '@/services/leegality/client'
+import { createSigningRequest } from '@/services/leegality/client'
 import { getLeegalityWorkflowId, getLeegalityStampSeriesId, getLeegalityWebhookUrl, getCompanySignatory } from '@/services/leegality/config'
 import { generateMsaHtml, type MsaPrefillData } from '@/lib/onboarding/generate-msa-pdf'
 import { htmlToPdf } from '@/lib/pdf/html-to-pdf'
+import { sendEmail } from '@/services/email'
+import { renderBrandedEmail } from '@/lib/email/templates'
 
 export const dynamic = 'force-dynamic'
 
@@ -165,15 +167,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Explicitly resend notification to company signatory — Leegality may skip
-    // email for invitees it considers internal/account members
+    // Send signing link to company signatory via our own email —
+    // Leegality skips email for same-domain invitees
     const companySignUrl = result.invitees?.[1]?.signUrl
     if (companySignUrl) {
       try {
-        await resendNotification([companySignUrl])
-        console.log('[admin/esign/send] Resent signing notification to company signatory')
-      } catch (resendErr) {
-        console.warn('[admin/esign/send] Failed to resend to company signatory:', resendErr)
+        await sendEmail({
+          to: COMPANY_SIGNATORY.email,
+          subject: `Invitation to eSign: Partner Agreement - ${name}`,
+          html: renderBrandedEmail({
+            previewText: `Partner agreement with ${name} needs your signature`,
+            heading: 'Agreement Ready for Signing',
+            intro: `A new partner agreement with <strong>${name}</strong> is ready for your signature as the authorised signatory of Sameday Solutions Private Limited.`,
+            ctaLabel: 'Sign Now',
+            ctaUrl: companySignUrl,
+            secondaryNote: 'Please sign at your earliest convenience. The partner has also received their signing link.',
+          }),
+        })
+        console.log('[admin/esign/send] Sent signing email to company signatory')
+      } catch (emailErr) {
+        console.warn('[admin/esign/send] Failed to email company signatory:', emailErr)
       }
     }
 
