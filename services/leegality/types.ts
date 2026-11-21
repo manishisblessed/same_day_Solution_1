@@ -19,6 +19,15 @@ export interface LeegalityCreateRequest {
   expiry?: number
   /** e-Stamp series ID (e.g., "01") — confirmed from Leegality dashboard network payload */
   stampSeries?: string
+  /** e-Stamp paper details — party names shown on the stamp certificate */
+  stampPaperDetails?: {
+    firstPartyName?: string
+    secondPartyName?: string
+    stampDutyPaidBy?: string
+    descriptionOfDocument?: string
+    considerationPrice?: number
+    stampDutyAmount?: number
+  }
   /** Webhook URL for signing events — explicitly passed to ensure Leegality calls it */
   webhook?: string
   /** Error webhook URL */

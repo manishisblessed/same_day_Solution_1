@@ -140,6 +140,11 @@ export async function POST(_request: NextRequest, { params }: { params: { token:
       },
       irn,
       ...(stampSeriesId ? { stampSeries: stampSeriesId } : {}),
+      stampPaperDetails: {
+        firstPartyName: 'SAMEDAY SOLUTIONS PRIVATE LIMITED',
+        secondPartyName: (gst?.legal_name_of_business || businessName || name).toUpperCase(),
+        stampDutyPaidBy: 'SAMEDAY SOLUTIONS PRIVATE LIMITED',
+      },
       ...(webhookUrl ? { webhook: webhookUrl, webhookVersion: '2.1' } : {}),
     })
 
