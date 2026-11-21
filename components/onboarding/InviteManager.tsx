@@ -242,17 +242,22 @@ export default function InviteManager({ adminMode = false }: { adminMode?: boole
     }
   }
 
-  async function sendAgreement(inv: InviteRow) {
+  async function sendAgreement(inv: InviteRow, force = false) {
     setEsignBusyId(inv.id)
     try {
       const res = await apiFetch('/api/admin/esign/send', {
         method: 'POST',
-        body: JSON.stringify({ inviteId: inv.id }),
+        body: JSON.stringify({ inviteId: inv.id, force }),
       })
       const data = await res.json()
       if (!res.ok) {
         if (data.alreadySigned) { showToast('Agreement already signed', 'info'); return }
-        if (data.alreadySent) { showToast('Agreement already sent — pending signature', 'info'); return }
+        if (data.alreadySent) {
+          if (confirm('Agreement is pending signature. Resend a new agreement? (Old one will be cancelled)')) {
+            return sendAgreement(inv, true)
+          }
+          return
+        }
         throw new Error(data.error || 'Failed to send agreement')
       }
       showToast(data.message || 'Agreement sent for signing', 'success')

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { inviteId } = await request.json()
+    const { inviteId, force } = await request.json()
     if (!inviteId) return NextResponse.json({ error: 'inviteId is required' }, { status: 400 })
 
     const supabase = getSupabaseAdmin()
@@ -50,7 +50,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Agreement already signed', alreadySigned: true }, { status: 400 })
     }
     if (existingDoc?.status === 'IN PROGRESS') {
-      return NextResponse.json({ error: 'Agreement already sent and pending signature', alreadySent: true }, { status: 400 })
+      if (!force) {
+        return NextResponse.json({ error: 'Agreement already sent and pending signature', alreadySent: true }, { status: 400 })
+      }
+      // Admin chose to resend — mark old document as DELETED
+      await supabase
+        .from('esign_documents')
+        .update({ status: 'DELETED', updated_at: new Date().toISOString() })
+        .eq('id', existingDoc.id)
+      console.log(`[admin/esign/send] Marked old esign doc ${existingDoc.id} as DELETED (force resend)`)
     }
 
     // Gather KYC data
